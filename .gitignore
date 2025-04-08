@@ -39,3 +39,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Firebase
+apphosting.yaml
+firestore.indexes.json
+firestore.rules
+/dataconnect/
+/dataconnect-generated/
+/certificates/
+
+# Local development
+*.local
+
+# Functions
+/functions/node_modules/
