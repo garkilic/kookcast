@@ -6,7 +6,7 @@ import type { NextAuthOptions } from 'next-auth';
 import type { User } from 'next-auth';
 import { NextResponse } from 'next/server';
 
-export const authOptions: NextAuthOptions = {
+const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       name: 'Credentials',
