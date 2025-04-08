@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import Modal from '@/components/Modal';
+import SignUpForm from '@/components/SignUpForm';
+import MultiStepSignUp from '@/components/MultiStepSignUp';
+import { useRouter } from 'next/navigation';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 type Spot = {
   id: string;
@@ -20,8 +26,14 @@ export default function Home() {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [isSignInModalOpen, setIsSignInModalOpen] = useState(false);
+  const [isSignUpModalOpen, setIsSignUpModalOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const router = useRouter();
 
   const spots = [
     { 
@@ -99,6 +111,14 @@ export default function Home() {
     };
   }, [showModal]);
 
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setIsAuthenticated(!!user);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   const handleSpotSelection = (spot: Spot) => {
     if (showConfirmation && spot.id === selectedSpot?.id) {
       // If clicking the selected spot again, unselect it
@@ -148,13 +168,71 @@ export default function Home() {
     }
   };
 
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      // Sign in with Firebase
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email.trim(),
+        password
+      );
+
+      if (!userCredential.user) {
+        throw new Error('Authentication failed');
+      }
+
+      // Close the modal and clear form
+      setIsSignInModalOpen(false);
+      setEmail('');
+      setPassword('');
+      
+      // Use Next.js router for navigation to dashboard-v2
+      router.push('/dashboard-v2');
+    } catch (error: any) {
+      console.error('Sign in error:', error);
+      // Handle specific Firebase error codes
+      if (error.code === 'auth/invalid-credential' || 
+          error.code === 'auth/wrong-password' || 
+          error.code === 'auth/user-not-found') {
+        setError('Invalid email or password');
+      } else if (error.code === 'auth/too-many-requests') {
+        setError('Too many failed attempts. Please try again later');
+      } else if (error.code === 'auth/invalid-email') {
+        setError('Invalid email format');
+      } else {
+        setError(error.message || 'Authentication failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="px-4 py-4 sm:py-6 mx-auto max-w-7xl sm:px-6 lg:px-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl sm:text-3xl font-bold text-primary-600">KookCast</h1>
-          <nav className="flex space-x-2 sm:space-x-4">
+          <div className="flex items-center space-x-4">
+            {isAuthenticated ? (
+              <button 
+                onClick={() => router.push('/dashboard-v2')}
+                className="text-sm sm:text-base text-secondary-600 hover:text-primary-600"
+              >
+                Account
+              </button>
+            ) : (
+              <button 
+                onClick={() => setIsSignInModalOpen(true)}
+                className="text-sm sm:text-base text-secondary-600 hover:text-primary-600"
+              >
+                Sign In
+              </button>
+            )}
             <button 
               onClick={() => document.getElementById('email-comparison')?.scrollIntoView({ behavior: 'smooth' })} 
               className="text-sm sm:text-base text-secondary-600 hover:text-primary-600"
@@ -167,7 +245,7 @@ export default function Home() {
             >
               Pricing
             </button>
-          </nav>
+          </div>
         </div>
       </header>
 
@@ -200,7 +278,7 @@ export default function Home() {
                     required
                   />
                   <button 
-                    onClick={() => setShowModal(true)}
+                    onClick={() => setIsSignUpModalOpen(true)}
                     className="w-full sm:w-auto px-8 py-3 text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors font-medium whitespace-nowrap"
                   >
                     Sign Up Free
@@ -724,6 +802,77 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Sign In Modal */}
+      {isSignInModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6 border-b border-secondary-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-secondary-900">Sign In</h3>
+                <button 
+                  onClick={() => setIsSignInModalOpen(false)}
+                  className="text-secondary-400 hover:text-secondary-500"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {error && (
+                <div className="bg-red-50 p-4 rounded-lg mb-4">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
+              <form onSubmit={handleSignIn} className="space-y-4">
+                <div>
+                  <label htmlFor="email" className="block text-gray-700 mb-2">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="password" className="block text-gray-700 mb-2">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    id="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50"
+                >
+                  {loading ? 'Signing in...' : 'Sign In'}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sign Up Modal */}
+      <Modal
+        isOpen={isSignUpModalOpen}
+        onClose={() => setIsSignUpModalOpen(false)}
+        title="Join KookCast"
+      >
+        <MultiStepSignUp />
+      </Modal>
     </div>
   );
 }
