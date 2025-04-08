@@ -30,8 +30,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files
+.env
+.env.*
+.env.local
+.env.development
+.env.test
+.env.production
 
 # vercel
 .vercel
@@ -44,12 +49,25 @@ next-env.d.ts
 apphosting.yaml
 firestore.indexes.json
 firestore.rules
+firebase-debug.log
+firebase-debug.*.log
+.firebase/
 /dataconnect/
 /dataconnect-generated/
 /certificates/
+serviceAccountKey.json
 
 # Local development
 *.local
 
 # Functions
 /functions/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Netlify
+.netlify/
