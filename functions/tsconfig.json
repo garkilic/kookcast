@@ -13,6 +13,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "moduleResolution": "nodenext",
-    "noUnusedLocals": true
+    "noUnusedLocals": true,
+    "types": ["node", "firebase-functions/v2"]
   }
 }
