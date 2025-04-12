@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 
 type Step = 'spot' | 'surferType' | 'credentials' | 'verify';
 
@@ -15,14 +16,15 @@ export default function MultiStepSignUp() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
+  const [spots, setSpots] = useState<SurfSpot[]>([]);
 
-  const spots = [
-    { id: 'ob', name: 'Ocean Beach' },
-    { id: 'linda-mar', name: 'Linda Mar' },
-    { id: 'montara', name: 'Montara' },
-    { id: 'pleasure-point', name: 'Pleasure Point' },
-    { id: 'steamers', name: 'Steamer Lane' },
-  ];
+  useEffect(() => {
+    const fetchSpots = async () => {
+      const surfSpots = await getSurfSpots();
+      setSpots(surfSpots);
+    };
+    fetchSpots();
+  }, []);
 
   const handleSpotSelect = (spotId: string) => {
     setSelectedSpot(spotId);
@@ -115,9 +117,8 @@ export default function MultiStepSignUp() {
 
       {step === 'credentials' && (
         <form onSubmit={handleSignUp} className="space-y-4">
-          <h3 className="text-xl font-semibold mb-4">Create Your Account</h3>
           <div>
-            <label htmlFor="email" className="block text-gray-700 mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
               Email
             </label>
             <input
@@ -125,12 +126,12 @@ export default function MultiStepSignUp() {
               id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               required
             />
           </div>
           <div>
-            <label htmlFor="password" className="block text-gray-700 mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
               Password
             </label>
             <input
@@ -138,7 +139,7 @@ export default function MultiStepSignUp() {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               required
             />
           </div>
@@ -152,34 +153,27 @@ export default function MultiStepSignUp() {
             </button>
             <button
               type="submit"
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
               disabled={loading}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50"
             >
-              {loading ? 'Signing up...' : 'Sign Up Free'}
+              {loading ? 'Signing up...' : 'Sign Up'}
             </button>
           </div>
         </form>
       )}
 
       {step === 'verify' && (
-        <div className="space-y-4 text-center">
+        <div className="text-center">
           <h3 className="text-xl font-semibold mb-4">Verify Your Email</h3>
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <p className="text-blue-800">
-              We've sent a verification email to <span className="font-semibold">{email}</span>
-            </p>
-            <p className="text-sm text-blue-600 mt-2">
-              Please check your inbox and click the verification link to complete your registration.
-            </p>
-          </div>
-          <div className="mt-4">
-            <button
-              onClick={() => window.location.href = '/dashboard'}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-            >
-              Continue to Dashboard
-            </button>
-          </div>
+          <p className="mb-4">
+            We've sent a verification email to {email}. Please check your inbox and click the verification link.
+          </p>
+          <button
+            onClick={() => setStep('credentials')}
+            className="text-blue-500 hover:text-blue-600"
+          >
+            ← Back
+          </button>
         </div>
       )}
     </div>
