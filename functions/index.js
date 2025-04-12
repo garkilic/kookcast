@@ -1,105 +1,269 @@
-const functions = require("firebase-functions");
-const {onRequest} = require("firebase-functions/v2/https");
-const logger = require("firebase-functions/logger");
+const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { defineSecret } = require("firebase-functions/params");
+const admin = require('firebase-admin');
+const express = require('express');
+const cors = require('cors');
 const sgMail = require('@sendgrid/mail');
 const OpenAI = require('openai');
 
-// Test function
-exports.helloWorld = onRequest((request, response) => {
-  logger.info("Test function called!", {structuredData: true});
-  response.json({
-    message: "Hello from Firebase!",
-    timestamp: new Date().toISOString(),
-    status: "success"
-  });
+// Define secrets
+const sendgridApiKey = defineSecret('SENDGRID_API_KEY');
+const sendgridFromEmail = defineSecret('SENDGRID_FROM_EMAIL');
+const sendgridTemplateId = defineSecret('SENDGRID_TEMPLATE_ID');
+const openaiApiKey = defineSecret('OPENAI_API_KEY');
+
+// Initialize Express app
+const app = express();
+
+// Middleware
+app.use(cors({origin: true}));
+app.use(express.json());
+
+// Initialize Firebase Admin
+admin.initializeApp();
+
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Email service is running' });
 });
 
-// Test surf forecast function with simulated data
-exports.testSurfForecast = onRequest(async (request, response) => {
+// Email sending endpoint
+app.post('/send', async (req, res) => {
   try {
-    // Get API keys from environment variables
-    const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    // Get secrets inside the handler
+    const apiKey = sendgridApiKey.value();
+    const fromEmail = sendgridFromEmail.value();
+    const templateId = sendgridTemplateId.value();
+    const openAiKey = openaiApiKey.value();
 
-    if (!SENDGRID_API_KEY || !OPENAI_API_KEY) {
-      throw new Error('API keys not found in environment variables');
+    if (!apiKey || !fromEmail) {
+      throw new Error('SendGrid configuration is missing');
     }
 
     // Set up SendGrid
-    sgMail.setApiKey(SENDGRID_API_KEY);
+    sgMail.setApiKey(apiKey);
 
-    // Set up OpenAI
-    const openai = new OpenAI({
-      apiKey: OPENAI_API_KEY
-    });
+    // Validate request
+    if (!req.body.to) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Missing required field: to'
+      });
+    }
 
-    // Simulated surf spot data
-    const spot = {
-      name: "Ocean Beach",
-      region: "San Francisco",
-      type: "beach break",
-      idealSurferType: "intermediate to advanced",
-      localTips: "Watch out for strong currents and cold water",
-      latitude: 37.7599,
-      longitude: -122.5108
-    };
+    let templateData = req.body.templateData;
 
-    // Simulated StormGlass data
-    const conditions = {
-      waveHeight: { noaa: 4.2 },
-      swellHeight: { noaa: 3.8 },
-      swellPeriod: { noaa: 12 },
-      swellDirection: { noaa: 270 },
-      windSpeed: { noaa: 5 },
-      windDirection: { noaa: 180 }
-    };
+    // If location is provided, generate AI report
+    if (req.body.location) {
+      try {
+        console.log(`Generating surf report for ${req.body.location}`);
+        const surfReport = await generateSurfReport(req.body.location, openAiKey);
+        
+        // Update template data with AI-generated content
+        templateData = {
+          ...templateData,
+          subject: `${req.body.location} Surf Report - ${new Date().toLocaleDateString()}`,
+          email_header: "🌊 Daily Surf Report",
+          forecast_title: `${req.body.location} Forecast`,
+          preview_text: surfReport.full_report.substring(0, 100),
+          forecast_time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          main_alert: surfReport.main_alert,
+          best_time_to_surf: surfReport.best_time,
+          subheadline: surfReport.wave_size,
+          conditions_summary: surfReport.full_report,
+          wave_size: surfReport.wave_size,
+          wind: surfReport.wind,
+          water_temp: surfReport.water_temp,
+          vibe: surfReport.vibe,
+          morning_conditions: surfReport.morning_conditions,
+          afternoon_conditions: surfReport.afternoon_conditions,
+          tip1: surfReport.tips[0],
+          tip2: surfReport.tips[1],
+          tip3: surfReport.tips[2]
+        };
+      } catch (error) {
+        console.error('Error generating surf report:', error);
+        throw new Error('Failed to generate surf report');
+      }
+    }
 
-    // Simulated WorldTides data
-    const tide = {
-      type: "high",
-      date: new Date().toISOString()
-    };
-
-    // Create prompt for OpenAI
-    const prompt = `Write a short, friendly surf forecast for ${spot.name} in ${spot.region}. 
-    This is a ${spot.type} spot suited for: ${spot.idealSurferType}. 
-    Local tips: ${spot.localTips}. 
-    Current conditions: wave height ${conditions.waveHeight.noaa}m, 
-    swell ${conditions.swellHeight.noaa}m @ ${conditions.swellPeriod.noaa}s from ${conditions.swellDirection.noaa}°. 
-    Wind: ${conditions.windSpeed.noaa} m/s from ${conditions.windDirection.noaa}°. 
-    Tide: ${tide.type} at ${tide.date}. 
-    Recommend if this person should go today, and what to expect.`;
-
-    // Get forecast from OpenAI
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const forecastText = completion.choices[0].message.content;
-
-    // Send email with forecast
     const msg = {
-      to: request.query.email || 'test@example.com',
-      from: 'griffin@kook-cast.com',
-      subject: `Your Surf Forecast for ${spot.name}`,
-      text: forecastText,
-      html: `<strong>${forecastText}</strong>`
+      to: req.body.to,
+      from: fromEmail,
+      subject: templateData.subject || req.body.subject,
+      templateId: templateId,
+      dynamicTemplateData: templateData
     };
 
+    // Send email
     await sgMail.send(msg);
     
-    response.json({
+    res.json({
       status: 'success',
-      message: 'Forecast generated and email sent successfully',
-      forecast: forecastText
+      message: 'Email sent successfully'
     });
   } catch (error) {
-    logger.error('Error in testSurfForecast:', error);
-    response.status(500).json({
+    console.error('Error sending email:', error);
+    res.status(500).json({
       status: 'error',
-      message: 'Failed to generate forecast',
-      error: error.message
+      message: 'Failed to send email',
+      details: error.response ? error.response.body : error.message
     });
   }
-}); 
+});
+
+// Generate surf report using OpenAI
+async function generateSurfReport(location, apiKey) {
+  try {
+    const openai = new OpenAI({
+      apiKey: apiKey,
+    });
+
+    const completion = await openai.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: `You are a surf report generator. Generate a detailed surf report for ${location} with the following sections:
+          1. Main Alert (one sentence summary)
+          2. Wave Size and Conditions
+          3. Wind Conditions
+          4. Water Temperature
+          5. Overall Vibe
+          6. Best Time to Surf
+          7. Morning Conditions (5:00-8:00am)
+          8. Afternoon Conditions (4:00-6:00pm)
+          9. Three Tips for Surfers
+          
+          IMPORTANT: Your response must be a valid JSON object with these exact keys and types:
+          {
+            "main_alert": "string",
+            "wave_size": "string",
+            "wind": "string",
+            "water_temp": "string",
+            "vibe": "string",
+            "best_time": "string",
+            "morning_conditions": "string",
+            "afternoon_conditions": "string",
+            "tips": ["string", "string", "string"],
+            "full_report": "string"
+          }
+          
+          The full_report should be a detailed narrative of all conditions. Do not include any text outside the JSON object.`
+        },
+        {
+          role: "user",
+          content: `Generate a surf report for ${location}`
+        }
+      ],
+      model: "gpt-4"
+    });
+
+    return JSON.parse(completion.choices[0].message.content);
+  } catch (error) {
+    console.error('Error generating surf report:', error);
+    throw error;
+  }
+}
+
+// Scheduled function to send surf reports
+exports.sendSurfReports = onSchedule({
+  schedule: '0 5 * * *',
+  timeZone: 'America/Los_Angeles',
+  retryCount: 3,
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
+  memory: '256MiB'
+}, async (event) => {
+  try {
+    // Get all users with surf locations
+    const usersSnapshot = await admin.firestore()
+      .collection('users')
+      .where('emailVerified', '==', true)
+      .get();
+
+    const sendGridApiKey = sendgridApiKey.value();
+    const fromEmail = sendgridFromEmail.value();
+    const templateId = sendgridTemplateId.value();
+    const openAiApiKey = openaiApiKey.value();
+
+    sgMail.setApiKey(sendGridApiKey);
+
+    // Process each user
+    for (const userDoc of usersSnapshot.docs) {
+      const user = userDoc.data();
+      if (!user.surfLocation) continue;
+
+      try {
+        // Generate surf report
+        const surfReport = await generateSurfReport(user.surfLocation, openAiApiKey);
+
+        // Format template data
+        const templateData = {
+          subject: `${user.surfLocation} Surf Report - ${new Date().toLocaleDateString()}`,
+          email_header: "🌊 Daily Surf Report",
+          forecast_title: `${user.surfLocation} Forecast`,
+          preview_text: surfReport.full_report.substring(0, 100),
+          forecast_time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          main_alert: surfReport.main_alert,
+          best_time_to_surf: surfReport.best_time,
+          subheadline: surfReport.wave_size,
+          conditions_summary: surfReport.full_report,
+          wave_size: surfReport.wave_size,
+          wind: surfReport.wind,
+          water_temp: surfReport.water_temp,
+          vibe: surfReport.vibe,
+          morning_time: "5:00–8:00am",
+          morning_conditions: surfReport.morning_conditions,
+          afternoon_time: "4:00–6:00pm",
+          afternoon_conditions: surfReport.afternoon_conditions,
+          tip1: surfReport.tips[0],
+          tip2: surfReport.tips[1],
+          tip3: surfReport.tips[2],
+          Sender_Name: "KookCast",
+          Sender_Address: "123 Surf Lane",
+          Sender_City: "San Francisco",
+          Sender_State: "CA",
+          Sender_Zip: "94121",
+          unsubscribe: "https://kook-cast.com/unsubscribe",
+          unsubscribe_preferences: "https://kook-cast.com/preferences"
+        };
+
+        // Send email
+        await sgMail.send({
+          to: user.email,
+          from: fromEmail,
+          templateId: templateId,
+          dynamicTemplateData: templateData
+        });
+
+        console.log(`Surf report sent to ${user.email}`);
+      } catch (error) {
+        console.error(`Error processing user ${user.email}:`, error);
+      }
+    }
+
+    return { success: true, message: 'Surf reports sent successfully' };
+  } catch (error) {
+    console.error('Error in sendSurfReports:', error);
+    throw error;
+  }
+});
+
+// Start the server if we're not in Firebase Functions
+if (process.env.NODE_ENV === 'development') {
+  const port = process.env.PORT || 8080;
+  app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+  });
+}
+
+// Export the Express app as a Firebase Function
+exports.api = onRequest({
+  cors: true,
+  maxInstances: 10,
+  memory: "256MiB",
+  timeoutSeconds: 60,
+  minInstances: 0,
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
+  invoker: "public"
+}, app); 
