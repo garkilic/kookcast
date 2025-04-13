@@ -86,7 +86,7 @@ export default function ProfileSetup() {
               <option value="">Select a surf spot</option>
               {spots.map((spot) => (
                 <option key={spot.id} value={spot.id}>
-                  {spot.name} - {spot.region}
+                  {spot.isMostPopular ? '⭐ ' : ''}{spot.name} - {spot.region}
                 </option>
               ))}
             </select>

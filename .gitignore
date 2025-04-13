@@ -71,3 +71,8 @@ serviceAccountKey.json
 # Netlify
 .netlify/
 sendgrid.env
+
+# Surf Spots Data
+/data/surfSpots.json
+/scripts/seedSurfSpots.js
+/src/lib/SurfSpots.ts
