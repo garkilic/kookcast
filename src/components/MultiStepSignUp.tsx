@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 
 type Step = 'spot' | 'surferType' | 'credentials' | 'verify';
 
@@ -15,14 +16,18 @@ export default function MultiStepSignUp() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
+  const [spots, setSpots] = useState<SurfSpot[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAllSpots, setShowAllSpots] = useState(false);
+  const SPOTS_TO_SHOW = 4;
 
-  const spots = [
-    { id: 'ob', name: 'Ocean Beach' },
-    { id: 'linda-mar', name: 'Linda Mar' },
-    { id: 'montara', name: 'Montara' },
-    { id: 'pleasure-point', name: 'Pleasure Point' },
-    { id: 'steamers', name: 'Steamer Lane' },
-  ];
+  useEffect(() => {
+    const fetchSpots = async () => {
+      const surfSpots = await getSurfSpots();
+      setSpots(surfSpots);
+    };
+    fetchSpots();
+  }, []);
 
   const handleSpotSelect = (spotId: string) => {
     setSelectedSpot(spotId);
@@ -39,14 +44,11 @@ export default function MultiStepSignUp() {
     setLoading(true);
 
     try {
-      // Create user with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Send verification email
       await sendEmailVerification(user);
 
-      // Create initial user profile in Firestore
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         createdAt: new Date().toISOString(),
@@ -64,36 +66,92 @@ export default function MultiStepSignUp() {
     }
   };
 
+  const filteredSpots = spots.filter(spot => 
+    spot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    spot.region.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const displayedSpots = showAllSpots ? filteredSpots : filteredSpots.slice(0, SPOTS_TO_SHOW);
+  const hasMoreSpots = filteredSpots.length > SPOTS_TO_SHOW;
+
   return (
-    <div className="w-full">
+    <div className="w-full max-w-4xl mx-auto">
       {error && <p className="text-red-500 mb-4">{error}</p>}
       
       {step === 'spot' && (
-        <div className="space-y-4">
-          <h3 className="text-xl font-semibold mb-4">Choose Your Home Break</h3>
-          <div className="grid grid-cols-2 gap-4">
-            {spots.map((spot) => (
+        <div className="space-y-6">
+          <h3 className="text-2xl font-semibold mb-4">Choose Your Home Break</h3>
+          
+          {/* Search Bar */}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search surf spots..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Surf Spots Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {displayedSpots.map((spot) => (
               <button
                 key={spot.id}
                 onClick={() => handleSpotSelect(spot.id)}
-                className="p-4 border rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                className={`p-4 border rounded-lg transition-all duration-200 ${
+                  spot.isMostPopular 
+                    ? 'border-yellow-400 bg-yellow-50 hover:border-yellow-500 hover:bg-yellow-100' 
+                    : 'hover:border-blue-500 hover:bg-blue-50'
+                }`}
               >
-                {spot.name}
+                <div className="flex items-start gap-3">
+                  {spot.isMostPopular && (
+                    <span className="text-yellow-500 text-xl">⭐</span>
+                  )}
+                  <div className="flex-1">
+                    <div className="font-medium text-lg">{spot.name}</div>
+                    <div className="text-sm text-gray-600 mt-1">{spot.region}</div>
+                    <div className="text-sm text-gray-500 mt-2 line-clamp-2">{spot.description}</div>
+                  </div>
+                </div>
               </button>
             ))}
           </div>
+
+          {hasMoreSpots && !showAllSpots && (
+            <button
+              onClick={() => setShowAllSpots(true)}
+              className="w-full py-3 text-blue-500 hover:text-blue-600 font-medium"
+            >
+              Show {filteredSpots.length - SPOTS_TO_SHOW} more spots
+            </button>
+          )}
+
+          {filteredSpots.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No surf spots found matching your search.
+            </div>
+          )}
         </div>
       )}
 
       {step === 'surferType' && (
-        <div className="space-y-4">
-          <h3 className="text-xl font-semibold mb-4">Describe Your Surfing Style</h3>
+        <div className="space-y-6">
+          <h3 className="text-2xl font-semibold mb-4">Describe Your Surfing Style</h3>
           <textarea
             value={surferType}
             onChange={(e) => setSurferType(e.target.value)}
             placeholder="Example: I'm a beginner who loves small, clean waves. I'm working on my pop-up and catching unbroken waves..."
-            className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            rows={4}
+            className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[150px]"
           />
           <div className="flex justify-between">
             <button
@@ -114,33 +172,35 @@ export default function MultiStepSignUp() {
       )}
 
       {step === 'credentials' && (
-        <form onSubmit={handleSignUp} className="space-y-4">
-          <h3 className="text-xl font-semibold mb-4">Create Your Account</h3>
-          <div>
-            <label htmlFor="email" className="block text-gray-700 mb-2">
-              Email
-            </label>
-            <input
-              type="email"
-              id="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-gray-700 mb-2">
-              Password
-            </label>
-            <input
-              type="password"
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
+        <form onSubmit={handleSignUp} className="space-y-6">
+          <h3 className="text-2xl font-semibold mb-4">Create Your Account</h3>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                id="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <input
+                type="password"
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
           </div>
           <div className="flex justify-between">
             <button
@@ -152,34 +212,27 @@ export default function MultiStepSignUp() {
             </button>
             <button
               type="submit"
+              className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600"
               disabled={loading}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50"
             >
-              {loading ? 'Signing up...' : 'Sign Up Free'}
+              {loading ? 'Signing up...' : 'Sign Up'}
             </button>
           </div>
         </form>
       )}
 
       {step === 'verify' && (
-        <div className="space-y-4 text-center">
-          <h3 className="text-xl font-semibold mb-4">Verify Your Email</h3>
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <p className="text-blue-800">
-              We've sent a verification email to <span className="font-semibold">{email}</span>
-            </p>
-            <p className="text-sm text-blue-600 mt-2">
-              Please check your inbox and click the verification link to complete your registration.
-            </p>
-          </div>
-          <div className="mt-4">
-            <button
-              onClick={() => window.location.href = '/dashboard'}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-            >
-              Continue to Dashboard
-            </button>
-          </div>
+        <div className="text-center space-y-6">
+          <h3 className="text-2xl font-semibold">Verify Your Email</h3>
+          <p className="text-gray-600">
+            We've sent a verification email to {email}. Please check your inbox and click the verification link.
+          </p>
+          <button
+            onClick={() => setStep('credentials')}
+            className="text-blue-500 hover:text-blue-600"
+          >
+            ← Back
+          </button>
         </div>
       )}
     </div>

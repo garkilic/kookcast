@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, sendEmailVerification, deleteUser } from 'firebase/auth';
 import { doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 
 interface UserData {
   email: string;
@@ -18,6 +19,7 @@ interface UserData {
 export default function DashboardV2() {
   const [isLoading, setIsLoading] = useState(true);
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [surfSpot, setSurfSpot] = useState<SurfSpot | null>(null);
   const [isResending, setIsResending] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState('');
@@ -44,7 +46,17 @@ export default function DashboardV2() {
         // Get user data from Firestore
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
-          setUserData(userDoc.data() as UserData);
+          const data = userDoc.data() as UserData;
+          setUserData(data);
+
+          // Fetch surf spot details
+          if (data.surfLocation) {
+            const spots = await getSurfSpots();
+            const spot = spots.find(s => s.id === data.surfLocation);
+            if (spot) {
+              setSurfSpot(spot);
+            }
+          }
         }
         setIsLoading(false);
       } catch (error) {
@@ -169,7 +181,7 @@ export default function DashboardV2() {
               </div>
               <div>
                 <p className="text-gray-600">Surf Location</p>
-                <p className="font-medium">{userData?.surfLocation || 'Not set'}</p>
+                <p className="font-medium">{surfSpot?.name || userData?.surfLocation || 'Not set'}</p>
               </div>
               <div>
                 <p className="text-gray-600">Surfer Type</p>
