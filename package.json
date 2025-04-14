@@ -16,6 +16,8 @@
     "@firebase/auth": "^1.10.0",
     "@firebase/firestore": "^4.7.10",
     "@sendgrid/mail": "^8.1.5",
+    "@stripe/react-stripe-js": "^3.6.0",
+    "@stripe/stripe-js": "^7.0.0",
     "firebase": "^11.6.0",
     "firebase-functions": "^6.3.2",
     "next": "14.1.3",
