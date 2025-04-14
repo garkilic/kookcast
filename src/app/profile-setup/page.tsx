@@ -9,11 +9,11 @@ import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { onAuthStateChanged } from 'firebase/auth';
 
 export default function ProfileSetup() {
-  const [surfLocation, setSurfLocation] = useState('');
   const [surferType, setSurferType] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [spots, setSpots] = useState<SurfSpot[]>([]);
+  const [homeBreak, setHomeBreak] = useState('');
   const router = useRouter();
 
   useEffect(() => {
@@ -28,8 +28,8 @@ export default function ProfileSetup() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
-          setSurfLocation(data.surfLocation || '');
           setSurferType(data.surferType || '');
+          setHomeBreak(data.homeBreak || '');
         }
 
         // Fetch surf spots
@@ -53,8 +53,8 @@ export default function ProfileSetup() {
       if (!auth.currentUser) throw new Error('No user logged in');
 
       await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-        surfLocation,
         surferType,
+        homeBreak,
         updatedAt: new Date().toISOString(),
       });
 
@@ -73,23 +73,25 @@ export default function ProfileSetup() {
         {error && <p className="text-red-500 mb-4">{error}</p>}
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label htmlFor="surfLocation" className="block text-gray-700 mb-2">
-              Where do you surf?
+            <label htmlFor="homeBreak" className="block text-gray-700 mb-2">
+              Set Your Home Break
             </label>
             <select
-              id="surfLocation"
-              value={surfLocation}
-              onChange={(e) => setSurfLocation(e.target.value)}
+              id="homeBreak"
+              value={homeBreak}
+              onChange={(e) => setHomeBreak(e.target.value)}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
             >
-              <option value="">Select a surf spot</option>
+              <option value="">Select your home break</option>
               {spots.map((spot) => (
                 <option key={spot.id} value={spot.id}>
                   {spot.isMostPopular ? '⭐ ' : ''}{spot.name} - {spot.region}
                 </option>
               ))}
             </select>
+            <p className="text-sm text-gray-500 mt-1">
+              Your home break is your main surf spot
+            </p>
           </div>
           <div className="mb-6">
             <label htmlFor="surferType" className="block text-gray-700 mb-2">
@@ -108,9 +110,9 @@ export default function ProfileSetup() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50"
+            className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
           >
-            {loading ? 'Saving...' : 'Save Profile'}
+            {loading ? 'Saving...' : 'Save Changes'}
           </button>
         </form>
       </div>

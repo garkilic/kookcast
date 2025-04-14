@@ -278,7 +278,10 @@ export default function Home() {
                     required
                   />
                   <button 
-                    onClick={() => setIsSignUpModalOpen(true)}
+                    onClick={() => {
+                      localStorage.removeItem('signupType');
+                      setIsSignUpModalOpen(true);
+                    }}
                     className="w-full sm:w-auto px-8 py-3 text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors font-medium whitespace-nowrap"
                   >
                     Sign Up Free
@@ -525,40 +528,51 @@ export default function Home() {
                   Go/Skip recommendations
                 </li>
               </ul>
-              <button className="mt-8 w-full px-6 py-3 text-center text-primary-600 border border-primary-600 rounded-lg hover:bg-primary-50 transition-colors">
+              <button 
+                onClick={() => {
+                  localStorage.removeItem('signupType');
+                  setIsSignUpModalOpen(true);
+                }}
+                className="mt-8 w-full px-6 py-3 text-center text-primary-600 border border-primary-600 rounded-lg hover:bg-primary-50 transition-colors"
+              >
                 Start Free
               </button>
             </div>
 
             {/* Kook+ Plan */}
-            <div className="p-6 sm:p-8 bg-primary-600 rounded-2xl text-white shadow-lg">
-              <h3 className="text-2xl font-bold">Kook+</h3>
-              <p className="mt-4 opacity-90">For the dedicated surfer</p>
-              <div className="mt-2 text-2xl font-bold">$5/month</div>
+            <div className="p-6 sm:p-8 bg-white rounded-2xl border-2 border-primary-500 shadow-lg relative overflow-hidden">
+              <div className="absolute top-4 right-4 bg-primary-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+                Popular
+              </div>
+              <h3 className="text-2xl font-bold text-secondary-900">Kook+</h3>
+              <p className="mt-4 text-secondary-600">For the dedicated surfer</p>
+              <div className="mt-2 text-2xl font-bold text-secondary-900">$5/month</div>
               <ul className="mt-8 space-y-4">
                 <li className="flex items-center">
-                  <span className="mr-2">✓</span>
-                  Multiple surf spots
+                  <span className="text-primary-500 mr-2">✓</span>
+                  <strong>Multiple spot tracking</strong>
                 </li>
                 <li className="flex items-center">
-                  <span className="mr-2">✓</span>
+                  <span className="text-primary-500 mr-2">✓</span>
                   Customizable delivery time
                 </li>
                 <li className="flex items-center">
-                  <span className="mr-2">✓</span>
-                  Personalized recommendations
+                  <span className="text-primary-500 mr-2">✓</span>
+                  Detailed condition breakdowns
                 </li>
                 <li className="flex items-center">
-                  <span className="mr-2">✓</span>
-                  Weekly "Best Days" outlook
-                </li>
-                <li className="flex items-center">
-                  <span className="mr-2">✓</span>
-                  Early access to new sports
+                  <span className="text-primary-500 mr-2">✓</span>
+                  Priority support
                 </li>
               </ul>
-              <button className="mt-8 w-full px-6 py-3 text-center bg-white text-primary-600 rounded-lg hover:bg-secondary-50 transition-colors">
-                Go Kook+
+              <button 
+                onClick={() => {
+                  localStorage.setItem('signupType', 'premium');
+                  setIsSignUpModalOpen(true);
+                }}
+                className="mt-8 w-full px-6 py-3 text-center text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Start Kook+
               </button>
             </div>
           </div>
@@ -591,8 +605,8 @@ export default function Home() {
             </p>
             <p className="mt-4 text-sm text-secondary-500 text-center max-w-md">
               Can't afford Kook+? No problem! Email me at{' '}
-              <a href="mailto:griffin@kookcast.com" className="text-primary-600 hover:text-primary-700">
-                griffin@kookcast.com
+              <a href="mailto:griffin@kook-cast.com" className="text-primary-600 hover:text-primary-700 whitespace-nowrap">
+                griffin@kook-cast.com
               </a>
               {' '}and I'll hook you up with a free premium account. Surfing should be accessible to everyone.
             </p>

@@ -19,7 +19,7 @@ export default function SignIn() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      router.push('/dashboard');
+      router.push('/dashboard-v2');
     } catch (error: any) {
       setError(error.message);
     } finally {
