@@ -14,10 +14,13 @@ const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
-type Step = 'spot' | 'surferType' | 'credentials' | 'payment' | 'verify';
+type Step = 'spot' | 'credentials' | 'payment' | 'verify' | 'surferType';
 
 interface MultiStepSignUpPaidProps {
+  onUpgradeToPremium: () => void;
   onSwitchToFree: (firstSpot: string) => void;
+  initialSpot?: string | null;
+  initialEmail?: string;
 }
 
 // Payment form component
@@ -107,12 +110,18 @@ const PaymentForm = ({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
   );
 };
 
-export default function MultiStepSignUpPaid({ onSwitchToFree }: MultiStepSignUpPaidProps) {
+export default function MultiStepSignUpPaid({ 
+  onUpgradeToPremium, 
+  onSwitchToFree, 
+  initialSpot, 
+  initialEmail 
+}: MultiStepSignUpPaidProps) {
   const [step, setStep] = useState<Step>('spot');
-  const [selectedSpots, setSelectedSpots] = useState<string[]>([]);
+  const [selectedSpots, setSelectedSpots] = useState<string[]>(initialSpot ? [initialSpot] : []);
   const [surferType, setSurferType] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail || '');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
@@ -145,12 +154,45 @@ export default function MultiStepSignUpPaid({ onSwitchToFree }: MultiStepSignUpP
     setStep('credentials');
   };
 
+  const handleNext = async () => {
+    if (step === 'spot') {
+      if (!email) {
+        setError('Please enter your email');
+        return;
+      }
+      if (!password) {
+        setError('Please enter a password');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match');
+        return;
+      }
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters');
+        return;
+      }
+      setStep('credentials');
+    } else if (step === 'credentials') {
+      setStep('payment');
+    } else if (step === 'payment') {
+      setStep('surferType');
+    } else if (step === 'surferType') {
+      setStep('verify');
+    }
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
+      if (!email) {
+        setError('Email is required');
+        return;
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
@@ -373,6 +415,19 @@ export default function MultiStepSignUpPaid({ onSwitchToFree }: MultiStepSignUpP
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />

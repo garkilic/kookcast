@@ -256,15 +256,6 @@ export default function DashboardV2() {
         <div className="max-w-7xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="flex items-center space-x-4">
-              <button
-                onClick={() => router.push('/')}
-                className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                <span className="text-sm sm:text-base font-medium">Home</span>
-              </button>
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
               {userData?.isPremium && (
                 <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
@@ -463,12 +454,6 @@ export default function DashboardV2() {
                   >
                     Update Profile
                   </button>
-                  <button
-                    onClick={() => router.push('/')}
-                    className="w-full px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm sm:text-base"
-                  >
-                    View Homepage
-                  </button>
                   {userData?.isPremium && (
                     <button
                       onClick={handleCancelSubscription}
@@ -615,29 +600,44 @@ export default function DashboardV2() {
                     spot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     spot.region.toLowerCase().includes(searchQuery.toLowerCase())
                   )
-                  .map((spot) => (
-                    <div
-                      key={spot.id}
-                      onClick={() => handleSpotSelect(spot.id)}
-                      className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                        selectedSpots.includes(spot.id)
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-medium">{spot.name}</h4>
-                          <p className="text-sm text-gray-600">{spot.region}</p>
-                        </div>
-                        {spot.isMostPopular && (
-                          <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                            Popular
-                          </span>
+                  .map((spot) => {
+                    const isLocked = !userData?.isPremium && !selectedSpots.includes(spot.id) && selectedSpots.length > 0;
+                    return (
+                      <div
+                        key={spot.id}
+                        onClick={() => handleSpotSelect(spot.id)}
+                        className={`p-4 rounded-lg border cursor-pointer transition-all relative ${
+                          selectedSpots.includes(spot.id)
+                            ? 'border-blue-500 bg-blue-50'
+                            : isLocked
+                            ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
+                            : 'border-gray-200 hover:border-blue-300'
+                        }`}
+                      >
+                        {isLocked && (
+                          <div className="absolute inset-0 bg-black bg-opacity-20 rounded-lg flex items-center justify-center">
+                            <div className="bg-white/80 p-2 rounded-lg flex items-center gap-2">
+                              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                              </svg>
+                              <span className="text-sm font-medium text-gray-600">Upgrade to Unlock</span>
+                            </div>
+                          </div>
                         )}
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-medium">{spot.name}</h4>
+                            <p className="text-sm text-gray-600">{spot.region}</p>
+                          </div>
+                          {spot.isMostPopular && (
+                            <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                              Popular
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
             </div>
             <div className="p-6 bg-gray-50 border-t border-gray-200">
@@ -661,25 +661,6 @@ export default function DashboardV2() {
                     {isUpdating ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
-                {!userData?.isPremium && (
-                  <div className="mt-4 p-4 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg text-white">
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                      <div>
-                        <h4 className="font-semibold text-lg">Upgrade to Kook+</h4>
-                        <p className="text-sm text-white/90">Get access to all surf spots and premium features</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setShowSpotPicker(false);
-                          setShowUpgradeModal(true);
-                        }}
-                        className="w-full sm:w-auto px-6 py-2 bg-white text-purple-600 rounded-lg font-medium hover:bg-gray-100 transition-colors"
-                      >
-                        Upgrade Now
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

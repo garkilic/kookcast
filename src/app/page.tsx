@@ -154,18 +154,8 @@ export default function Home() {
       return;
     }
 
-    setIsSubmitting(true);
-    setError('');
-
-    try {
-      // TODO: Implement your own authentication logic here
-      alert('Check your email for the magic link to complete your signup!');
-      setEmail('');
-    } catch (error: any) {
-      setError(error.message || 'Failed to sign up. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    localStorage.removeItem('signupType');
+    setIsSignUpModalOpen(true);
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -268,7 +258,7 @@ export default function Home() {
             </p>
             <div className="mt-8 flex flex-col items-center gap-y-4">
               <div className="flex flex-col items-center gap-4 w-full max-w-md">
-                <div className="w-full flex flex-col sm:flex-row gap-4">
+                <form onSubmit={handleEmailSubmit} className="w-full flex flex-col sm:flex-row gap-4">
                   <input
                     type="email"
                     placeholder="Enter your email"
@@ -278,15 +268,12 @@ export default function Home() {
                     required
                   />
                   <button 
-                    onClick={() => {
-                      localStorage.removeItem('signupType');
-                      setIsSignUpModalOpen(true);
-                    }}
+                    type="submit"
                     className="w-full sm:w-auto px-8 py-3 text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors font-medium whitespace-nowrap"
                   >
                     Sign Up Free
                   </button>
-                </div>
+                </form>
                 <div className="flex flex-col items-center gap-2 text-sm text-secondary-500">
                   <p className="text-center">Free forever • No credit card • Choose from 20+ California spots</p>
                 </div>
@@ -885,7 +872,7 @@ export default function Home() {
         onClose={() => setIsSignUpModalOpen(false)}
         title="Join KookCast"
       >
-        <MultiStepSignUp />
+        <MultiStepSignUp initialEmail={email} />
       </Modal>
     </div>
   );

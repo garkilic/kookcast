@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import MultiStepSignUpFree from './MultiStepSignUpFree';
 import MultiStepSignUpPaid from './MultiStepSignUpPaid';
 
-export default function MultiStepSignUp() {
+interface MultiStepSignUpProps {
+  initialEmail?: string;
+}
+
+export default function MultiStepSignUp({ initialEmail }: MultiStepSignUpProps) {
   const [signupType, setSignupType] = useState<'free' | 'paid' | null>(null);
   const [initialSpot, setInitialSpot] = useState<string | null>(null);
 
@@ -38,8 +42,17 @@ export default function MultiStepSignUp() {
   }
 
   return signupType === 'paid' ? (
-    <MultiStepSignUpPaid onSwitchToFree={handleSwitchToFree} />
+    <MultiStepSignUpPaid 
+      onUpgradeToPremium={handleUpgradeToPremium}
+      onSwitchToFree={handleSwitchToFree}
+      initialSpot={initialSpot}
+      initialEmail={initialEmail}
+    />
   ) : (
-    <MultiStepSignUpFree onUpgradeToPremium={handleUpgradeToPremium} initialSpot={initialSpot} />
+    <MultiStepSignUpFree 
+      onUpgradeToPremium={handleUpgradeToPremium} 
+      initialSpot={initialSpot} 
+      initialEmail={initialEmail} 
+    />
   );
 } 

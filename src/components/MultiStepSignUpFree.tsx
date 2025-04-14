@@ -14,14 +14,16 @@ type Step = 'spot' | 'surferType' | 'credentials' | 'verify';
 interface MultiStepSignUpFreeProps {
   onUpgradeToPremium: () => void;
   initialSpot?: string | null;
+  initialEmail?: string;
 }
 
-export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot }: MultiStepSignUpFreeProps) {
+export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, initialEmail }: MultiStepSignUpFreeProps) {
   const [step, setStep] = useState<Step>('spot');
-  const [selectedSpot, setSelectedSpot] = useState<string>(initialSpot || '');
+  const [selectedSpot, setSelectedSpot] = useState<string | null>(initialSpot || null);
   const [surferType, setSurferType] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail || '');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setPasswordConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
@@ -41,7 +43,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot }:
 
   const handleSpotSelect = (spotId: string) => {
     if (selectedSpot === spotId) {
-      setSelectedSpot('');
+      setSelectedSpot(null);
     } else {
       setSelectedSpot(spotId);
     }
@@ -67,7 +69,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot }:
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         createdAt: new Date().toISOString(),
-        surfLocations: [selectedSpot],
+        surfLocations: selectedSpot ? [selectedSpot] : [],
         surferType,
         emailVerified: IS_DEVELOPMENT,
         isPremium: false,
@@ -90,6 +92,34 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot }:
   const displayedSpots = showAllSpots ? filteredSpots : filteredSpots.slice(0, SPOTS_TO_SHOW);
   const hasMoreSpots = filteredSpots.length > SPOTS_TO_SHOW;
 
+  const handleNext = async () => {
+    if (step === 'spot') {
+      if (!selectedSpot) {
+        setError('Please select a spot');
+        return;
+      }
+    }
+    if (step === 'credentials') {
+      if (!email) {
+        setError('Please enter your email');
+        return;
+      }
+      if (!password) {
+        setError('Please enter a password');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match');
+        return;
+      }
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters');
+        return;
+      }
+    }
+    setStep(step === 'spot' ? 'surferType' : 'credentials');
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto">
       {error && <p className="text-red-500 mb-4">{error}</p>}
@@ -109,7 +139,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot }:
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {displayedSpots.map((spot) => {
               const isSelected = selectedSpot === spot.id;
-              const isLocked = selectedSpot !== '' && !isSelected;
+              const isLocked = selectedSpot !== null && !isSelected;
               
               return (
                 <button
@@ -238,6 +268,19 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot }:
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                id="confirm-password"
+                value={confirmPassword}
+                onChange={(e) => setPasswordConfirm(e.target.value)}
                 className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
                 required
               />
