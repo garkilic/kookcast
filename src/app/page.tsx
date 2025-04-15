@@ -313,29 +313,28 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-                
+
+                {/* Surf Alert Box */}
+                <div className="bg-green-50 border border-dashed border-green-200 rounded-lg p-6 mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xl">🌊</span>
+                    <h3 className="text-xl font-semibold text-green-800">Surf Alert: Ideal Conditions at 5:00–8:00am</h3>
+                  </div>
+                  <p className="text-green-700 text-lg mb-2">Beautiful morning ahead with clean, rolling lefts coming through</p>
+                  <p className="text-green-700 text-lg">Light offshore breeze keeping everything glassy until mid-morning</p>
+                </div>
+
                 {/* Email Body */}
                 <div className="space-y-6">
-                  {/* Main Summary */}
-                  <div className="bg-primary-50 p-4 rounded-lg text-center">
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mb-2">
-                      <span className="text-primary-600 font-medium">✅ Looking good today!</span>
-                      <span className="hidden sm:inline text-primary-400">•</span>
-                      <span className="text-primary-600 font-medium">Get there by 5am</span>
-                    </div>
-                    <p className="text-primary-600 font-medium text-lg">Beautiful morning ahead with clean, rolling lefts coming through</p>
-                    <p className="text-sm text-primary-500 mt-2">Light offshore breeze keeping everything glassy until mid-morning</p>
-                  </div>
-
                   {/* Quick Stats */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
                       <p className="text-sm font-medium text-secondary-900">Wave Size</p>
-                      <p className="text-sm text-secondary-600">Waist high • Clean shape</p>
+                      <p className="text-sm text-secondary-600">3-4ft • Clean shape</p>
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
                       <p className="text-sm font-medium text-secondary-900">Wind</p>
-                      <p className="text-sm text-secondary-600">✨ Light offshore</p>
+                      <p className="text-sm text-secondary-600">✨ 5-8mph Offshore</p>
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
                       <p className="text-sm font-medium text-secondary-900">Water Temp</p>
@@ -343,7 +342,7 @@ export default function Home() {
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
                       <p className="text-sm font-medium text-secondary-900">Vibe Today</p>
-                      <p className="text-sm text-secondary-600">Gentle & Easygoing</p>
+                      <p className="text-sm text-secondary-600">Clean & Consistent</p>
                     </div>
                   </div>
 
@@ -363,7 +362,7 @@ export default function Home() {
                           <span className="mr-2">🌅</span>
                           <span className="font-medium">Afternoon Session</span>
                         </div>
-                        <span className="text-secondary-600">4-6pm (🌬️ slight texture)</span>
+                        <span className="text-secondary-600">4:00-6:00pm (🌬️ light texture)</span>
                       </div>
                     </div>
                   </div>
@@ -374,15 +373,15 @@ export default function Home() {
                     <div className="space-y-2">
                       <p className="text-sm text-secondary-600 flex items-start justify-center">
                         <span className="mr-2">👥</span>
-                        <span>Light crowd - great for practicing</span>
+                        <span>Medium crowd expected - arrive early for best peaks</span>
                       </p>
                       <p className="text-sm text-secondary-600 flex items-start justify-center">
                         <span className="mr-2">💡</span>
-                        <span>Look for darker patches of water - these are usually the best waves</span>
+                        <span>Best waves on the south end near the jetty</span>
                       </p>
                       <p className="text-sm text-secondary-600 flex items-start justify-center">
                         <span className="mr-2">⚠️</span>
-                        <span>Watch out for small rip currents near the pier</span>
+                        <span>Watch for occasional closeouts during high tide</span>
                       </p>
                     </div>
                   </div>
@@ -428,13 +427,20 @@ export default function Home() {
                 </div>
                 <div className="space-y-4">
                   <div className="bg-secondary-50 p-4 rounded-lg">
-                    <p className="font-mono text-sm text-secondary-600">Primary Swell: 3.8ft @ 15s WNW (290°)</p>
-                    <p className="font-mono text-sm text-secondary-600">Secondary Swell: 2.1ft @ 8s SW (210°)</p>
-                    <p className="font-mono text-sm text-secondary-600">Wind: 5-10mph NW (320°)</p>
-                    <p className="font-mono text-sm text-secondary-600">Tide: 2.3ft rising to 4.2ft</p>
+                    <p className="font-mono text-sm text-secondary-600">Primary Swell: 3.8ft @ 15s WNW (290°) | WVHT 4.2ft</p>
+                    <p className="font-mono text-sm text-secondary-600">Secondary Swell: 2.1ft @ 8s SW (210°) | WVHT 1.8ft</p>
+                    <p className="font-mono text-sm text-secondary-600">Tertiary Swell: 1.2ft @ 12s SSW (195°) | WVHT 0.9ft</p>
+                    <p className="font-mono text-sm text-secondary-600">Wind: 5-10kts NW (320°) | WSPD 8kts | WVDR 315°</p>
+                    <p className="font-mono text-sm text-secondary-600">Tide: 2.3ft 0423 rising to 4.2ft 1047 | -0.2ft 1632</p>
+                    <p className="font-mono text-sm text-secondary-600">MWD: 285° | APD: 9.2s | PRES: 1013.2mb ↓</p>
                   </div>
                   <div className="bg-secondary-50 p-4 rounded-lg">
-                    <p className="text-sm text-secondary-600">"Moderate NW swell with light offshore winds. Secondary SW swell adding texture. Tide push incoming. Watch for rip currents."</p>
+                    <p className="text-sm text-secondary-600">"WNW groundswell combining with SW windswell creating inconsistent conditions. Primary swell generating shoulder-high+ sets with occasional plus faces on the better ones. Light+ NW flow early trending W. Mixed-mode sea state with 9ft faces on 16-second intervals during peak morning push. Watch for periodic SSW interference patterns and tide-induced backwash during mid-morning transition. Moderate crowd factor expected at primary peaks. Standard dawn patrol protocol advised."</p>
+                  </div>
+                  <div className="bg-secondary-50 p-4 rounded-lg space-y-2">
+                    <p className="font-mono text-xs text-secondary-600">BUOY 46042: 3.8ft @ 15.2s WNW | 8.9ft faces</p>
+                    <p className="font-mono text-xs text-secondary-600">BUOY 46012: 3.5ft @ 14.8s WNW | 8.2ft faces</p>
+                    <p className="font-mono text-xs text-secondary-600">CDIP 179: 3.6ft @ 15.0s WNW | 8.5ft faces</p>
                   </div>
                 </div>
               </div>
@@ -452,24 +458,24 @@ export default function Home() {
                 </div>
                 
                 <div className="space-y-4">
-                  <div className="bg-primary-50 p-4 rounded-lg text-center">
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mb-2">
-                      <span className="text-primary-600 font-medium">✅ Looking good today!</span>
-                      <span className="hidden sm:inline text-primary-400">•</span>
-                      <span className="text-primary-600 font-medium">Get there by 5am</span>
+                  {/* Surf Alert Box */}
+                  <div className="bg-green-50 border border-dashed border-green-200 rounded-lg p-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xl">🌊</span>
+                      <h3 className="text-xl font-semibold text-green-800">Surf Alert: Ideal Conditions at 5:00–8:00am</h3>
                     </div>
-                    <p className="text-primary-600 font-medium text-lg">Beautiful morning ahead with clean, rolling lefts coming through</p>
-                    <p className="text-sm text-primary-500 mt-2">Light offshore breeze keeping everything glassy until mid-morning</p>
+                    <p className="text-green-700 text-lg mb-2">Beautiful morning ahead with clean, rolling lefts coming through</p>
+                    <p className="text-green-700 text-lg">Light offshore breeze keeping everything glassy until mid-morning</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
                       <p className="text-sm font-medium text-secondary-900">Wave Size</p>
-                      <p className="text-sm text-secondary-600">Waist high • Clean shape</p>
+                      <p className="text-sm text-secondary-600">3-4ft • Clean shape</p>
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
-                      <p className="text-sm font-medium text-secondary-900">Vibe Today</p>
-                      <p className="text-sm text-secondary-600">Gentle & Easygoing</p>
+                      <p className="text-sm font-medium text-secondary-900">Wind</p>
+                      <p className="text-sm text-secondary-600">✨ 5-8mph Offshore</p>
                     </div>
                   </div>
 
@@ -482,7 +488,7 @@ export default function Home() {
                       </p>
                       <p className="text-sm text-secondary-600 flex items-start">
                         <span className="mr-2">💡</span>
-                        <span>Look for darker patches of water for best waves</span>
+                        <span>Best waves on the south end near the jetty</span>
                       </p>
                     </div>
                   </div>
