@@ -7,12 +7,10 @@ import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { useRouter } from 'next/navigation';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
-
-// Add development mode flag
-const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // Initialize Stripe
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
+const stripePromise = loadStripe('pk_test_51REGmDCKpNGLkmsGVt0NT8thUxrD9MKt11KqoSJzuZNUgz1lcE7lxye6vV37my8yV36JA6SmDBLmwXZaSik5fhNc00Nb10iqES');
 
 type Step = 'spot' | 'credentials' | 'payment' | 'verify' | 'surferType';
 
@@ -24,7 +22,12 @@ interface MultiStepSignUpPaidProps {
 }
 
 // Payment form component
-const PaymentForm = ({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) => {
+const PaymentForm = ({ onSuccess, onCancel, userEmail, userId }: { 
+  onSuccess: (paymentId: string) => void; 
+  onCancel: () => void;
+  userEmail?: string;
+  userId?: string;
+}) => {
   const stripe = useStripe();
   const elements = useElements();
   const [error, setError] = useState<string | null>(null);
@@ -38,14 +41,7 @@ const PaymentForm = ({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
     setError(null);
 
     try {
-      // In development mode, simulate successful payment
-      if (IS_DEVELOPMENT) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        onSuccess();
-        return;
-      }
-
-      // In production, process actual payment
+      // Always process actual payment
       const { error: stripeError, paymentMethod } = await stripe.createPaymentMethod({
         type: 'card',
         card: elements.getElement(CardElement)!,
@@ -53,16 +49,55 @@ const PaymentForm = ({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
 
       if (stripeError) {
         setError(stripeError.message || 'Payment failed');
+        setProcessing(false);
         return;
       }
 
-      // Here you would typically send the paymentMethod.id to your backend
-      // to create a subscription or process the payment
-      console.log('Payment method created:', paymentMethod.id);
-      
-      onSuccess();
-    } catch (err) {
-      setError('An unexpected error occurred');
+      // Send the paymentMethod.id to your backend to create a subscription or payment intent
+      const response = await fetch('/api/stripe/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          paymentMethodId: paymentMethod.id,
+          email: userEmail,
+          userId: userId
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError(result.error || 'Payment failed');
+        setProcessing(false);
+        return;
+      }
+
+      // If the backend returns a clientSecret for further action (e.g., 3D Secure)
+      if (result.clientSecret && result.requiresAction) {
+        const confirmResult = await stripe.confirmCardPayment(result.clientSecret);
+        if (confirmResult.error) {
+          setError(confirmResult.error.message || 'Payment confirmation failed');
+          setProcessing(false);
+          return;
+        }
+        if (confirmResult.paymentIntent && confirmResult.paymentIntent.status === 'succeeded') {
+          onSuccess(confirmResult.paymentIntent.id);
+          setProcessing(false);
+          return;
+        }
+      } else if (result.success) {
+        // Payment succeeded without further action
+        onSuccess(result.paymentIntentId);
+        setProcessing(false);
+        return;
+      } else {
+        setError('Payment processing failed');
+        setProcessing(false);
+      }
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred');
       console.error('Payment error:', err);
     } finally {
       setProcessing(false);
@@ -196,18 +231,44 @@ export default function MultiStepSignUpPaid({
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      if (!IS_DEVELOPMENT) {
-        await sendEmailVerification(user);
-      }
+      await sendEmailVerification(user);
 
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         createdAt: new Date().toISOString(),
         surfLocations: selectedSpots,
         surferType,
-        emailVerified: IS_DEVELOPMENT,
+        emailVerified: false,
         isPremium: true,
       });
+
+      // Send signup notification
+      try {
+        const functions = getFunctions();
+        const sendSignupNotification = httpsCallable(functions, 'sendSignupNotification');
+        await sendSignupNotification({ email: user.email });
+      } catch (notificationError) {
+        console.error('Error sending signup notification:', notificationError);
+      }
+
+      // Schedule sync for 2 minutes after signup
+      setTimeout(async () => {
+        try {
+          const response = await fetch('https://api-ovbmv2dgfq-uc.a.run.app/sync-email-verification', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ uid: user.uid }),
+          });
+
+          if (!response.ok) {
+            console.error('Failed to sync email verification status:', await response.text());
+          }
+        } catch (syncError) {
+          console.error('Error syncing email verification status:', syncError);
+        }
+      }, 120000); // 2 minutes in milliseconds
 
       setVerificationSent(true);
       setStep('payment');
@@ -455,60 +516,141 @@ export default function MultiStepSignUpPaid({
       {step === 'payment' && (
         <div className="space-y-6">
           <h3 className="text-2xl font-semibold mb-4">Complete Your Kook+ Subscription</h3>
-          {IS_DEVELOPMENT && (
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-              <p className="text-yellow-700">
-                Development Mode: Payment processing is bypassed. Click "Complete Subscription" to continue.
-              </p>
+          
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-lg border border-blue-100 mb-6">
+            <h4 className="text-xl font-medium text-blue-800 mb-4">Kook+ Premium Benefits</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex items-start space-x-3">
+                <div className="text-blue-500 mt-0.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-900">Multiple Spots Tracking</h5>
+                  <p className="text-sm text-gray-600">Monitor all your favorite surf spots in one place</p>
+                </div>
+              </div>
+              <div className="flex items-start space-x-3">
+                <div className="text-blue-500 mt-0.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-900">Priority Notifications</h5>
+                  <p className="text-sm text-gray-600">Get alerts when conditions are perfect for you</p>
+                </div>
+              </div>
+              <div className="flex items-start space-x-3">
+                <div className="text-blue-500 mt-0.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-900">Advanced Forecasting</h5>
+                  <p className="text-sm text-gray-600">Access to detailed swell, wind, and tide predictions</p>
+                </div>
+              </div>
+              <div className="flex items-start space-x-3">
+                <div className="text-blue-500 mt-0.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-900">Personalized Recommendations</h5>
+                  <p className="text-sm text-gray-600">AI-powered surf suggestions based on your style</p>
+                </div>
+              </div>
+              <div className="flex items-start space-x-3">
+                <div className="text-blue-500 mt-0.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-900">Exclusive Content</h5>
+                  <p className="text-sm text-gray-600">Access to premium tips, guides and tutorials</p>
+                </div>
+              </div>
+              <div className="flex items-start space-x-3">
+                <div className="text-blue-500 mt-0.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-900">Ad-Free Experience</h5>
+                  <p className="text-sm text-gray-600">Enjoy clean, distraction-free forecasts</p>
+                </div>
+              </div>
             </div>
-          )}
+            
+            <div className="mt-6 p-4 bg-white rounded-lg border border-blue-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="block text-sm text-gray-500">Your subscription</span>
+                  <span className="text-2xl font-bold text-gray-900">$5</span>
+                  <span className="text-gray-500 text-sm">/month</span>
+                </div>
+                <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                  Cancel anytime
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <div className="bg-white p-6 rounded-lg border border-gray-200">
             <div className="mb-6">
-              <h4 className="text-lg font-medium mb-2">Kook+ Plan</h4>
-              <p className="text-gray-600">$5/month</p>
+              <h4 className="text-lg font-medium mb-2">Your Selected Spots</h4>
               <div className="mt-4">
-                <h5 className="font-medium mb-2">Selected Spots:</h5>
-                <ul className="list-disc list-inside text-gray-600">
+                <ul className="space-y-2">
                   {selectedSpots.map(spotId => {
                     const spot = spots.find(s => s.id === spotId);
-                    return spot ? <li key={spotId}>{spot.name}</li> : null;
+                    return spot ? (
+                      <li key={spotId} className="flex items-center bg-blue-50 p-2 rounded-lg">
+                        <span className="text-blue-600 mr-2">•</span>
+                        <span>{spot.name}</span> 
+                        <span className="text-xs text-gray-500 ml-2">({spot.region})</span>
+                      </li>
+                    ) : null;
                   })}
                 </ul>
               </div>
             </div>
 
-            {!IS_DEVELOPMENT && (
-              <Elements stripe={stripePromise}>
-                <PaymentForm
-                  onSuccess={() => {
-                    setStep('verify');
-                  }}
-                  onCancel={() => {
-                    setPaymentCancelled(true);
-                    if (auth.currentUser) {
-                      // Keep only the first selected spot for free users
-                      const firstSpot = selectedSpots[0];
-                      setDoc(doc(db, 'users', auth.currentUser.uid), {
-                        isPremium: false,
-                        surfLocations: [firstSpot],
-                      }, { merge: true });
-                    }
-                    setStep('verify');
-                  }}
-                />
-              </Elements>
-            )}
-
-            {IS_DEVELOPMENT && (
-              <div className="mt-6">
-                <button
-                  onClick={() => setStep('verify')}
-                  className="w-full bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600"
-                >
-                  Complete Subscription
-                </button>
-              </div>
-            )}
+            <Elements stripe={stripePromise}>
+              <PaymentForm
+                userEmail={email}
+                userId={auth.currentUser?.uid}
+                onSuccess={(paymentId) => {
+                  // If we have a user and payment ID, save it to Firestore
+                  if (auth.currentUser && paymentId) {
+                    setDoc(doc(db, 'users', auth.currentUser.uid), {
+                      stripePaymentId: paymentId,
+                      isPremium: true,
+                      premiumStartDate: new Date().toISOString()
+                    }, { merge: true });
+                  }
+                  // Redirect to dashboard after successful payment
+                  router.push('/dashboard-v2');
+                }}
+                onCancel={() => {
+                  setPaymentCancelled(true);
+                  if (auth.currentUser) {
+                    // Keep only the first selected spot for free users
+                    const firstSpot = selectedSpots[0];
+                    setDoc(doc(db, 'users', auth.currentUser.uid), {
+                      isPremium: false,
+                      surfLocations: [firstSpot],
+                    }, { merge: true });
+                  }
+                  setStep('verify');
+                }}
+              />
+            </Elements>
           </div>
         </div>
       )}
@@ -522,26 +664,18 @@ export default function MultiStepSignUpPaid({
                 You've selected the free plan. You'll receive forecasts for {selectedSpots[0]} only.
               </p>
             </div>
-          ) : IS_DEVELOPMENT ? (
-            <p className="text-gray-600">
-              Development Mode: Email verification is bypassed. You can proceed to the dashboard.
-            </p>
           ) : (
             <p className="text-gray-600">
               We've sent a verification email to {email}. Please check your inbox and click the verification link.
             </p>
           )}
           <div className="flex flex-col gap-4">
-            {IS_DEVELOPMENT && (
-              <button
-                onClick={() => {
-                  router.push('/dashboard-v2');
-                }}
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-              >
-                Go to Dashboard
-              </button>
-            )}
+            <button
+              onClick={() => router.push('/dashboard-v2')}
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+            >
+              Go to Dashboard
+            </button>
             <button
               onClick={() => setStep('credentials')}
               className="text-blue-500 hover:text-blue-600"

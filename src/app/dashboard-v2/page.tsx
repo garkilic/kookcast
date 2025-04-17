@@ -59,6 +59,16 @@ export default function DashboardV2() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const data = userDoc.data() as UserData;
+          
+          // Update Firestore if email verification status has changed
+          if (data.emailVerified !== user.emailVerified) {
+            console.log('Updating Firestore email verification status');
+            await updateDoc(doc(db, 'users', user.uid), {
+              emailVerified: user.emailVerified,
+              emailVerifiedAt: user.emailVerified ? new Date().toISOString() : null
+            });
+          }
+          
           setUserData(data);
           setSelectedSpots(data.surfLocations || []);
 

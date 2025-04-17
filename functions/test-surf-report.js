@@ -84,8 +84,8 @@ async function sendTestEmail() {
     
     // Format template data using AI-generated content
     const templateData = {
-      subject: `${testConfig.testLocation} Surf Report - ${new Date().toLocaleDateString()}`,
-      email_header: "🌊 Daily Surf Report",
+      subject: testConfig.testLocation + " Surf Report - " + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+      email_header: "📋 Daily Surf Report",
       forecast_title: `${testConfig.testLocation} Forecast`,
       preview_text: surfReport.full_report.substring(0, 100),
       forecast_time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),

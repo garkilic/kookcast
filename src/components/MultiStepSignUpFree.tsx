@@ -5,11 +5,12 @@ import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { useRouter } from 'next/navigation';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // Add development mode flag
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
 
-type Step = 'spot' | 'surferType' | 'credentials' | 'verify';
+type Step = 'spot' | 'surferType' | 'credentials' | 'verify' | 'payment';
 
 interface MultiStepSignUpFreeProps {
   onUpgradeToPremium: () => void;
@@ -59,6 +60,11 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
     setLoading(true);
 
     try {
+      if (!email) {
+        setError('Email is required');
+        return;
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
@@ -74,6 +80,34 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
         emailVerified: IS_DEVELOPMENT,
         isPremium: false,
       });
+
+      // Send signup notification
+      try {
+        const functions = getFunctions();
+        const sendSignupNotification = httpsCallable(functions, 'sendSignupNotification');
+        await sendSignupNotification({ email: user.email });
+      } catch (notificationError) {
+        console.error('Error sending signup notification:', notificationError);
+      }
+
+      // Schedule sync for 2 minutes after signup
+      setTimeout(async () => {
+        try {
+          const response = await fetch('https://api-ovbmv2dgfq-uc.a.run.app/sync-email-verification', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ uid: user.uid }),
+          });
+
+          if (!response.ok) {
+            console.error('Failed to sync email verification status:', await response.text());
+          }
+        } catch (syncError) {
+          console.error('Error syncing email verification status:', syncError);
+        }
+      }, 120000); // 2 minutes in milliseconds
 
       setVerificationSent(true);
       setStep('verify');
