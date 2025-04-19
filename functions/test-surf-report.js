@@ -14,8 +14,17 @@ admin.initializeApp();
 
 // Test configuration
 const testConfig = {
-  testEmail: 'garkilic@gmail.com',
-  testLocation: 'Santa Cruz'
+  email: process.env.TEST_EMAIL || 'garkilic@gmail.com',
+  location: process.env.TEST_LOCATION || 'Santa Cruz',
+  sender: {
+    name: process.env.SENDER_NAME || 'Griffin Arkilic',
+    address: process.env.SENDER_ADDRESS || '123 Main St',
+    city: process.env.SENDER_CITY || 'Los Angeles',
+    state: process.env.SENDER_STATE || 'CA',
+    zip: process.env.SENDER_ZIP || '90001'
+  },
+  unsubscribeUrl: process.env.UNSUBSCRIBE_URL || 'https://yoursurfapp.com/unsubscribe',
+  preferencesUrl: process.env.PREFERENCES_URL || 'https://yoursurfapp.com/preferences'
 };
 
 async function generateSurfReport(location, apiKey) {
@@ -80,37 +89,35 @@ async function sendTestEmail() {
     const templateId = sendgridTemplateId.value();
 
     // Generate surf report
-    const surfReport = await generateSurfReport(testConfig.testLocation, apiKey);
+    const surfReport = await generateSurfReport(testConfig.location, apiKey);
     
     // Format template data using AI-generated content
+    const formattedDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
     const templateData = {
-      subject: testConfig.testLocation + " Surf Report - " + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
-      email_header: "📋 Daily Surf Report",
-      forecast_title: `${testConfig.testLocation} Forecast`,
-      preview_text: surfReport.full_report.substring(0, 100),
-      forecast_time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      main_alert: surfReport.main_alert,
+      first_name: testConfig.sender.name.split(' ')[0],
+      location: testConfig.location,
+      date: formattedDate,
       best_time_to_surf: surfReport.best_time,
-      subheadline: surfReport.wave_size,
-      conditions_summary: surfReport.full_report,
-      wave_size: surfReport.wave_size,
-      wind: surfReport.wind,
-      water_temp: surfReport.water_temp,
+      second_best_time: surfReport.second_best,
+      short_synopsis: surfReport.swell_summary,
+      weather: surfReport.wind_summary,
+      gear: surfReport.gear_recommendation,
+      stoke_level: surfReport.stoke_level,
       vibe: surfReport.vibe,
-      morning_time: "5:00–8:00am",
-      morning_conditions: surfReport.morning_conditions,
-      afternoon_time: "4:00–6:00pm",
-      afternoon_conditions: surfReport.afternoon_conditions,
-      tip1: surfReport.tips[0],
-      tip2: surfReport.tips[1],
-      tip3: surfReport.tips[2],
-      Sender_Name: "KookCast",
-      Sender_Address: "123 Surf Lane",
-      Sender_City: "San Francisco",
-      Sender_State: "CA",
-      Sender_Zip: "94121",
-      unsubscribe: "https://kook-cast.com/unsubscribe",
-      unsubscribe_preferences: "https://kook-cast.com/preferences"
+      skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
+      daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
+      yes_url: CONFIG.CHECKIN_URLS.yes,
+      no_url: CONFIG.CHECKIN_URLS.no,
+      skipped_url: CONFIG.CHECKIN_URLS.skipped,
+      unsubscribe_url: testConfig.unsubscribeUrl,
+      preferences_url: testConfig.preferencesUrl,
+      sender: {
+        name: testConfig.sender.name,
+        address: testConfig.sender.address,
+        city: testConfig.sender.city,
+        state: testConfig.sender.state,
+        zip: testConfig.sender.zip
+      }
     };
 
     // Set up SendGrid
@@ -118,7 +125,7 @@ async function sendTestEmail() {
 
     // Send email
     await sgMail.send({
-      to: testConfig.testEmail,
+      to: testConfig.email,
       from: fromEmail,
       templateId: templateId,
       dynamicTemplateData: templateData
