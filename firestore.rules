@@ -2,18 +2,42 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2025, 5, 7);
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // User document rules
+    match /users/{userId} {
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAuthenticated() && isOwner(userId);
+      allow delete: if isAuthenticated() && isOwner(userId);
+      
+      // Validate board types
+      allow write: if request.resource.data.boardTypes is list &&
+                  request.resource.data.boardTypes.size() <= 6; // Max 6 board types
+      
+      // Surf diary entries rules
+      match /surfEntries/{entryId} {
+        allow read: if isAuthenticated() && isOwner(userId);
+        allow create: if isAuthenticated() && isOwner(userId);
+        allow update: if isAuthenticated() && isOwner(userId);
+        allow delete: if isAuthenticated() && isOwner(userId);
+        
+        // Validate surf entry data
+        allow write: if request.resource.data.date is string &&
+                    request.resource.data.surfed is bool &&
+                    request.resource.data.notes is string &&
+                    request.resource.data.conditions is map &&
+                    request.resource.data.rating is number &&
+                    request.resource.data.rating >= 0 &&
+                    request.resource.data.rating <= 5;
+      }
     }
   }
 }

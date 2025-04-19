@@ -8,6 +8,8 @@ import { doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import UpgradeToPremium from '@/components/UpgradeToPremium';
+import SurfDiaryList from '@/components/SurfDiaryList';
+import Link from 'next/link';
 
 interface UserData {
   email: string;
@@ -17,7 +19,17 @@ interface UserData {
   emailVerified: boolean;
   isPremium: boolean;
   homeBreak?: string;
+  boardTypes: string[];
 }
+
+const boardLabels: Record<string, string> = {
+  shortboard: 'Shortboard',
+  funboard: 'Funboard/Mini-mal',
+  longboard: 'Longboard',
+  fish: 'Fish',
+  foamie: 'Soft-top/Foamie',
+  sup: 'SUP'
+};
 
 export default function DashboardV2() {
   const [isLoading, setIsLoading] = useState(true);
@@ -516,8 +528,38 @@ export default function DashboardV2() {
                     <p className="text-sm text-gray-500">Surfer Type</p>
                     <p className="font-medium text-sm sm:text-base">{userData?.surferType || 'Not set'}</p>
                   </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Boards</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-sm sm:text-base">
+                        {userData?.boardTypes?.length 
+                          ? userData.boardTypes.map(board => boardLabels[board]).join(', ')
+                          : 'Not set'}
+                      </p>
+                      <button
+                        onClick={() => router.push('/profile-setup')}
+                        className="text-blue-500 hover:text-blue-600 text-sm"
+                      >
+                        Update
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
+            </div>
+
+            {/* Surf Diary Section */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold">Surf Diary</h2>
+                <Link
+                  href="/surf-diary/new"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Add Entry
+                </Link>
+              </div>
+              <SurfDiaryList />
             </div>
 
             {/* Email Verification Status */}

@@ -224,7 +224,15 @@ export default function Home() {
               </button>
             )}
             <button 
-              onClick={() => document.getElementById('email-comparison')?.scrollIntoView({ behavior: 'smooth' })} 
+              onClick={() => {
+                const featuresSection = document.getElementById('features');
+                if (featuresSection) {
+                  featuresSection.scrollIntoView({ 
+                    behavior: 'smooth',
+                    block: 'start'
+                  });
+                }
+              }} 
               className="text-sm sm:text-base text-secondary-600 hover:text-primary-600"
             >
               Features
@@ -245,16 +253,15 @@ export default function Home() {
         <section className="px-4 pt-8 sm:pt-12 pb-12 sm:pb-16 mx-auto max-w-7xl sm:px-6 lg:px-8">
           <div className="text-center">
             <div className="mb-6 sm:mb-8 inline-flex items-center px-3 sm:px-4 py-1.5 rounded-full bg-primary-50 text-primary-700 text-sm font-medium">
-              <span className="mr-2">🎉</span>
-              Join 2,000+ surfers getting clear, simple forecasts
+              <span className="mr-2">🤖</span>
+              AI-Powered Personal Surf Coach
             </div>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-secondary-900">
-              Your Daily Surf Forecast,<br />
-              <span className="text-primary-600">Finally Made Simple</span>
+              Your AI Surf Forecast,<br />
+              <span className="text-primary-600">Personalized Just for You</span>
             </h1>
             <p className="mt-4 sm:mt-6 text-lg sm:text-xl text-secondary-600 max-w-2xl mx-auto">
-              Stop wasting time with confusing surf reports. Get personalized, actionable forecasts that match your 
-              style and skill level, delivered before dawn patrol.
+              Get daily surf forecasts tailored to your skill level and preferences, delivered straight to your inbox. No apps to download, no complicated charts - just clear, actionable advice from your AI surf coach.
             </p>
             <div className="mt-8 flex flex-col items-center gap-y-4">
               <div className="flex flex-col items-center gap-4 w-full max-w-md">
@@ -271,35 +278,17 @@ export default function Home() {
                     type="submit"
                     className="w-full sm:w-auto px-8 py-3 text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors font-medium whitespace-nowrap"
                   >
-                    Sign Up Free
+                    Start Free
                   </button>
                 </form>
                 <div className="flex flex-col items-center gap-2 text-sm text-secondary-500">
-                  <p className="text-center">Free forever • No credit card • Choose from 20+ California spots</p>
+                  <p className="text-center">Free forever • No app needed • AI-powered personalization</p>
                 </div>
               </div>
             </div>
             
-            {/* Trust Indicators */}
-            <div className="mt-6 flex flex-col sm:flex-row justify-center items-center gap-4 sm:gap-6 text-secondary-500">
-              <div className="flex items-center">
-                <span className="mr-2">📍</span>
-                <span className="text-sm">20+ spots available in California</span>
-              </div>
-              <div className="flex items-center">
-                <span className="mr-2">✨</span>
-                <span className="text-sm">New spots added monthly</span>
-              </div>
-            </div>
-
             {/* Example Preview Card */}
             <div className="mt-12 sm:mt-16 relative">
-              <div className="mb-4 text-center">
-                <span className="bg-primary-600 text-white px-4 py-1.5 rounded-full text-sm font-medium inline-flex items-center gap-x-1">
-                  <span>📧</span>
-                  Example Daily Email
-                </span>
-              </div>
               <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 max-w-2xl mx-auto transform hover:-translate-y-1 transition-transform duration-300">
                 {/* Email Header */}
                 <div className="flex items-center justify-between mb-6 border-b border-secondary-200 pb-4">
@@ -317,11 +306,11 @@ export default function Home() {
                 {/* Surf Alert Box */}
                 <div className="bg-green-50 border border-dashed border-green-200 rounded-lg p-6 mb-6">
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xl">🌊</span>
-                    <h3 className="text-xl font-semibold text-green-800">Surf Alert: Ideal Conditions at 5:00–8:00am</h3>
+                    <span className="text-xl">🎯</span>
+                    <h3 className="text-xl font-semibold text-green-800">Perfect Match: Your Ideal Session Today</h3>
                   </div>
-                  <p className="text-green-700 text-lg mb-2">Beautiful morning ahead with clean, rolling lefts coming through</p>
-                  <p className="text-green-700 text-lg">Light offshore breeze keeping everything glassy until mid-morning</p>
+                  <p className="text-green-700 text-lg mb-2">Based on your intermediate skill level and preference for clean, shoulder-high waves</p>
+                  <p className="text-green-700 text-lg">AI forecast predicts excellent conditions matching your surfing style</p>
                 </div>
 
                 {/* Email Body */}
@@ -329,90 +318,72 @@ export default function Home() {
                   {/* Quick Stats */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
-                      <p className="text-sm font-medium text-secondary-900">Wave Size</p>
-                      <p className="text-sm text-secondary-600">3-4ft • Clean shape</p>
+                      <p className="text-sm font-medium text-secondary-900">Wave Height</p>
+                      <p className="text-sm text-secondary-600">4-5ft • Perfect for you</p>
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
-                      <p className="text-sm font-medium text-secondary-900">Wind</p>
-                      <p className="text-sm text-secondary-600">✨ 5-8mph Offshore</p>
+                      <p className="text-sm font-medium text-secondary-900">Conditions</p>
+                      <p className="text-sm text-secondary-600">✨ Clean & Glassy</p>
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
-                      <p className="text-sm font-medium text-secondary-900">Water Temp</p>
-                      <p className="text-sm text-secondary-600">58°F (3/2mm)</p>
+                      <p className="text-sm font-medium text-secondary-900">Skill Match</p>
+                      <p className="text-sm text-secondary-600">98% Compatible</p>
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
-                      <p className="text-sm font-medium text-secondary-900">Vibe Today</p>
-                      <p className="text-sm text-secondary-600">Clean & Consistent</p>
+                      <p className="text-sm font-medium text-secondary-900">Best Board</p>
+                      <p className="text-sm text-secondary-600">7'2" Funboard</p>
                     </div>
                   </div>
 
                   {/* Session Times */}
                   <div className="bg-secondary-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-secondary-900 mb-3 text-center">Best Times to Surf</h5>
+                    <h5 className="font-medium text-secondary-900 mb-3 text-center">Personalized Session Times</h5>
                     <div className="space-y-3">
                       <div className="flex items-center justify-between border-b border-secondary-200 pb-2">
                         <div className="flex items-center">
-                          <span className="mr-2">⏰</span>
-                          <span className="font-medium">Morning Session</span>
+                          <span className="mr-2">🎯</span>
+                          <span className="font-medium">Prime Session</span>
                         </div>
-                        <span className="text-secondary-600">5:00-8:00am (✨ glassy)</span>
+                        <span className="text-secondary-600">6:00-8:00am (Perfect for your level)</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                          <span className="mr-2">🌅</span>
-                          <span className="font-medium">Afternoon Session</span>
+                          <span className="mr-2">👌</span>
+                          <span className="font-medium">Backup Session</span>
                         </div>
-                        <span className="text-secondary-600">4:00-6:00pm (🌬️ light texture)</span>
+                        <span className="text-secondary-600">4:00-5:30pm (Good conditions)</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Tips Section */}
+                  {/* AI Tips Section */}
                   <div className="bg-secondary-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-secondary-900 mb-3 text-center">Quick Tips</h5>
+                    <h5 className="font-medium text-secondary-900 mb-3 text-center">AI Coaching Tips</h5>
                     <div className="space-y-2">
-                      <p className="text-sm text-secondary-600 flex items-start justify-center">
-                        <span className="mr-2">👥</span>
-                        <span>Medium crowd expected - arrive early for best peaks</span>
+                      <p className="text-sm text-secondary-600 flex items-start">
+                        <span className="mr-2">🎯</span>
+                        <span>Perfect conditions to practice your bottom turns - waves have good wall sections</span>
                       </p>
-                      <p className="text-sm text-secondary-600 flex items-start justify-center">
+                      <p className="text-sm text-secondary-600 flex items-start">
                         <span className="mr-2">💡</span>
-                        <span>Best waves on the south end near the jetty</span>
+                        <span>Based on your progress, try taking off closer to the peak today</span>
                       </p>
-                      <p className="text-sm text-secondary-600 flex items-start justify-center">
-                        <span className="mr-2">⚠️</span>
-                        <span>Watch for occasional closeouts during high tide</span>
+                      <p className="text-sm text-secondary-600 flex items-start">
+                        <span className="mr-2">🌊</span>
+                        <span>South peak aligns best with your preferred wave type</span>
                       </p>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-
-            <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 max-w-4xl mx-auto">
-              <div className="p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-primary-600 text-2xl mb-4">⏰</div>
-                <h3 className="font-semibold text-secondary-900">Never Miss Dawn Patrol</h3>
-                <p className="mt-2 text-sm text-secondary-600">Your personalized forecast in your inbox by 5:00 AM, every day</p>
-              </div>
-              <div className="p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-primary-600 text-2xl mb-4">🎯</div>
-                <h3 className="font-semibold text-secondary-900">Tailored to Your Style</h3>
-                <p className="mt-2 text-sm text-secondary-600">Forecasts that match your skill level and preferences</p>
-              </div>
-              <div className="p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-primary-600 text-2xl mb-4">🌊</div>
-                <h3 className="font-semibold text-secondary-900">Surf Your Way</h3>
-                <p className="mt-2 text-sm text-secondary-600">Get recommendations that fit your surfing style and goals</p>
-              </div>
-            </div>
           </div>
         </section>
 
         {/* Email Comparison Section */}
-        <section id="email-comparison" className="px-4 py-12 bg-secondary-50">
+        <section id="features" className="px-4 py-12 bg-secondary-50">
           <div className="max-w-7xl mx-auto">
-            <h3 className="text-2xl sm:text-3xl font-bold text-center text-secondary-900 mb-8">No More Confusing Forecasts</h3>
+            <h3 className="text-2xl sm:text-3xl font-bold text-center text-secondary-900 mb-8">AI-Powered Clarity, Not Confusion</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
               {/* Typical Forecast */}
               <div className="bg-white rounded-xl shadow-lg p-6">
@@ -421,8 +392,8 @@ export default function Home() {
                     <span className="text-secondary-600 text-xl">📊</span>
                   </div>
                   <div className="ml-3">
-                    <p className="font-semibold text-secondary-900">Typical Surf Report</p>
-                    <p className="text-sm text-secondary-500">Today, 5:00 AM</p>
+                    <p className="font-semibold text-secondary-900">Traditional Surf Report</p>
+                    <p className="text-sm text-secondary-500">Complex & Overwhelming</p>
                   </div>
                 </div>
                 <div className="space-y-4">
@@ -445,15 +416,15 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* KookCast Email */}
-              <div className="bg-white rounded-xl shadow-lg p-6">
+              {/* KookCast Forecast */}
+              <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-primary-500">
                 <div className="flex items-center mb-4">
                   <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center">
-                    <span className="text-primary-600 text-xl">🏄‍♂️</span>
+                    <span className="text-primary-600 text-xl">🤖</span>
                   </div>
                   <div className="ml-3">
-                    <p className="font-semibold text-secondary-900">KookCast</p>
-                    <p className="text-sm text-secondary-500">Today, 5:00 AM</p>
+                    <p className="font-semibold text-primary-900">Your AI Surf Coach</p>
+                    <p className="text-sm text-primary-500">Personalized & Clear</p>
                   </div>
                 </div>
                 
@@ -461,38 +432,186 @@ export default function Home() {
                   {/* Surf Alert Box */}
                   <div className="bg-green-50 border border-dashed border-green-200 rounded-lg p-6">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-xl">🌊</span>
-                      <h3 className="text-xl font-semibold text-green-800">Surf Alert: Ideal Conditions at 5:00–8:00am</h3>
+                      <span className="text-xl">🎯</span>
+                      <h3 className="text-xl font-semibold text-green-800">Perfect Match: Your Ideal Session Today</h3>
                     </div>
-                    <p className="text-green-700 text-lg mb-2">Beautiful morning ahead with clean, rolling lefts coming through</p>
-                    <p className="text-green-700 text-lg">Light offshore breeze keeping everything glassy until mid-morning</p>
+                    <p className="text-green-700 text-lg mb-2">Based on your intermediate skill level and preference for clean, shoulder-high waves</p>
+                    <p className="text-green-700 text-lg">AI forecast predicts excellent conditions matching your surfing style</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
-                      <p className="text-sm font-medium text-secondary-900">Wave Size</p>
-                      <p className="text-sm text-secondary-600">3-4ft • Clean shape</p>
+                      <p className="text-sm font-medium text-secondary-900">Wave Height</p>
+                      <p className="text-sm text-secondary-600">4-5ft • Perfect for you</p>
                     </div>
                     <div className="bg-secondary-50 p-3 rounded-lg text-center">
-                      <p className="text-sm font-medium text-secondary-900">Wind</p>
-                      <p className="text-sm text-secondary-600">✨ 5-8mph Offshore</p>
+                      <p className="text-sm font-medium text-secondary-900">Conditions</p>
+                      <p className="text-sm text-secondary-600">✨ Clean & Glassy</p>
                     </div>
                   </div>
 
                   <div className="bg-secondary-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-secondary-900 mb-3">Quick Tips</h5>
+                    <h5 className="font-medium text-secondary-900 mb-3">AI Coaching Tips</h5>
                     <div className="space-y-2">
                       <p className="text-sm text-secondary-600 flex items-start">
-                        <span className="mr-2">⏰</span>
-                        <span>Best Time: 5:00-8:00am (✨ glassy)</span>
+                        <span className="mr-2">🎯</span>
+                        <span>Perfect conditions to practice your bottom turns - waves have good wall sections</span>
                       </p>
                       <p className="text-sm text-secondary-600 flex items-start">
                         <span className="mr-2">💡</span>
-                        <span>Best waves on the south end near the jetty</span>
+                        <span>Based on your progress, try taking off closer to the peak today</span>
                       </p>
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* How It Works Section */}
+        <section className="px-4 py-12 sm:py-16 bg-secondary-50">
+          <div className="max-w-7xl mx-auto">
+            <h2 className="text-3xl sm:text-4xl font-bold text-center text-secondary-900 mb-8 sm:mb-12">
+              How KookCast Works
+            </h2>
+            
+            {/* Main Flow */}
+            <div className="relative">
+              {/* Connection Lines */}
+              <div className="hidden md:block absolute top-1/2 left-0 right-0 h-1 bg-primary-100 transform -translate-y-1/2"></div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 sm:gap-12 relative z-10">
+                {/* Step 1 */}
+                <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 transform hover:-translate-y-1 transition-transform duration-300">
+                  <div className="flex items-center mb-6">
+                    <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center mr-4">
+                      <span className="text-2xl">🌊</span>
+                    </div>
+                    <h3 className="text-xl font-semibold text-secondary-900">Data Collection</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <p className="text-secondary-600">
+                      We gather real-time data from multiple sources:
+                    </p>
+                    <ul className="space-y-2 text-secondary-600">
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>NOAA buoy data for wave height, period, and direction</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Tide predictions from NOAA stations</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Weather data for wind conditions</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 transform hover:-translate-y-1 transition-transform duration-300">
+                  <div className="flex items-center mb-6">
+                    <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center mr-4">
+                      <span className="text-2xl">⚡</span>
+                    </div>
+                    <h3 className="text-xl font-semibold text-secondary-900">Real-Time Processing</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <p className="text-secondary-600">
+                      Our system processes this data continuously:
+                    </p>
+                    <ul className="space-y-2 text-secondary-600">
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Data is collected and processed every hour</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Models update predictions based on new data</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Reports are generated fresh each morning</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 transform hover:-translate-y-1 transition-transform duration-300">
+                  <div className="flex items-center mb-6">
+                    <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center mr-4">
+                      <span className="text-2xl">🎯</span>
+                    </div>
+                    <h3 className="text-xl font-semibold text-secondary-900">Personalized Report</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <p className="text-secondary-600">
+                      Generates your custom surf report:
+                    </p>
+                    <ul className="space-y-2 text-secondary-600">
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Best times to surf based on conditions</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Recommended board for the day</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>Skills to focus on during your session</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Technical Details */}
+            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8">
+                <div className="flex items-center mb-4">
+                  <span className="text-2xl mr-3">⚡</span>
+                  <h3 className="text-xl font-semibold text-secondary-900">Continuous Learning</h3>
+                </div>
+                <ul className="space-y-2 text-secondary-600">
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span>System learns from your session ratings</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span>Improves recommendations over time</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span>Adapts to your changing preferences</span>
+                  </li>
+                </ul>
+              </div>
+              <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8">
+                <div className="flex items-center mb-4">
+                  <span className="text-2xl mr-3">🔒</span>
+                  <h3 className="text-xl font-semibold text-secondary-900">Data Security</h3>
+                </div>
+                <ul className="space-y-2 text-secondary-600">
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span>Your data is encrypted and secure</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span>We never share your information</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span>You control your preferences</span>
+                  </li>
+                </ul>
               </div>
             </div>
           </div>
@@ -505,20 +624,20 @@ export default function Home() {
             {/* Free Plan */}
             <div className="p-6 sm:p-8 bg-white rounded-2xl border border-secondary-200 shadow-lg">
               <h3 className="text-2xl font-bold text-secondary-900">Free</h3>
-              <p className="mt-4 text-secondary-600">Perfect for casual surfers</p>
+              <p className="mt-4 text-secondary-600">Start your personalized surf journey</p>
               <div className="mt-2 text-2xl font-bold text-secondary-900">$0/month</div>
               <ul className="mt-8 space-y-4">
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✓</span>
-                  Daily surf summary for one spot
+                  <span className="text-primary-500 mr-2">🤖</span>
+                  AI-powered surf forecasts for one spot
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✓</span>
-                  Fixed delivery time (5:00 AM)
+                  <span className="text-primary-500 mr-2">🎯</span>
+                  Personalized to your skill level
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✓</span>
-                  Go/Skip recommendations
+                  <span className="text-primary-500 mr-2">📧</span>
+                  Daily email delivery (5:00 AM)
                 </li>
               </ul>
               <button 
@@ -535,26 +654,30 @@ export default function Home() {
             {/* Kook+ Plan */}
             <div className="p-6 sm:p-8 bg-white rounded-2xl border-2 border-primary-500 shadow-lg relative overflow-hidden">
               <div className="absolute top-4 right-4 bg-primary-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-                Popular
+                Most Popular
               </div>
               <h3 className="text-2xl font-bold text-secondary-900">Kook+</h3>
-              <p className="mt-4 text-secondary-600">For the dedicated surfer</p>
+              <p className="mt-4 text-secondary-600">Advanced AI personalization</p>
               <div className="mt-2 text-2xl font-bold text-secondary-900">$5/month</div>
               <ul className="mt-8 space-y-4">
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✓</span>
-                  <strong>Multiple spot tracking</strong>
+                  <span className="text-primary-500 mr-2">🎯</span>
+                  <strong>Multi-spot AI recommendations</strong>
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✓</span>
-                  Customizable delivery time
+                  <span className="text-primary-500 mr-2">🤖</span>
+                  Advanced skill progression tracking
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✓</span>
+                  <span className="text-primary-500 mr-2">⚡</span>
+                  Custom delivery time & preferences
+                </li>
+                <li className="flex items-center">
+                  <span className="text-primary-500 mr-2">📊</span>
                   Detailed condition breakdowns
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✓</span>
+                  <span className="text-primary-500 mr-2">💬</span>
                   Priority support
                 </li>
               </ul>

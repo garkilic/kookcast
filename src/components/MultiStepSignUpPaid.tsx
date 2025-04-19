@@ -14,6 +14,11 @@ const stripePromise = loadStripe('pk_test_51REGmDCKpNGLkmsGVt0NT8thUxrD9MKt11Kqo
 
 type Step = 'spot' | 'credentials' | 'payment' | 'verify' | 'surferType';
 
+interface SurferPreferences {
+  description: string;
+  boardTypes: string[];
+}
+
 interface MultiStepSignUpPaidProps {
   onUpgradeToPremium: () => void;
   onSwitchToFree: (firstSpot: string) => void;
@@ -153,7 +158,10 @@ export default function MultiStepSignUpPaid({
 }: MultiStepSignUpPaidProps) {
   const [step, setStep] = useState<Step>('spot');
   const [selectedSpots, setSelectedSpots] = useState<string[]>(initialSpot ? [initialSpot] : []);
-  const [surferType, setSurferType] = useState('');
+  const [surferPreferences, setSurferPreferences] = useState<SurferPreferences>({
+    description: '',
+    boardTypes: []
+  });
   const [email, setEmail] = useState(initialEmail || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -217,6 +225,24 @@ export default function MultiStepSignUpPaid({
     }
   };
 
+  const boardOptions = [
+    { id: 'shortboard', label: 'Shortboard', description: '5\'6" - 6\'4" performance board' },
+    { id: 'funboard', label: 'Funboard/Mini-mal', description: '7\'0" - 8\'0" versatile board' },
+    { id: 'longboard', label: 'Longboard', description: '9\'0"+ classic longboard' },
+    { id: 'fish', label: 'Fish', description: '5\'4" - 6\'0" retro fish' },
+    { id: 'foamie', label: 'Soft-top/Foamie', description: 'Beginner-friendly foam board' },
+    { id: 'sup', label: 'SUP', description: 'Stand-up paddleboard' }
+  ];
+
+  const toggleBoardType = (boardId: string) => {
+    setSurferPreferences(prev => ({
+      ...prev,
+      boardTypes: prev.boardTypes.includes(boardId)
+        ? prev.boardTypes.filter(id => id !== boardId)
+        : [...prev.boardTypes, boardId]
+    }));
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -237,7 +263,8 @@ export default function MultiStepSignUpPaid({
         email: user.email,
         createdAt: new Date().toISOString(),
         surfLocations: selectedSpots,
-        surferType,
+        surferDescription: surferPreferences.description,
+        boardTypes: surferPreferences.boardTypes,
         emailVerified: false,
         isPremium: true,
       });
@@ -424,15 +451,59 @@ export default function MultiStepSignUpPaid({
       )}
 
       {step === 'surferType' && (
-        <div className="space-y-6">
-          <h3 className="text-2xl font-semibold mb-4">Describe Your Surfing Style</h3>
-          <textarea
-            value={surferType}
-            onChange={(e) => setSurferType(e.target.value)}
-            placeholder="Example: I'm a beginner who loves small, clean waves. I'm working on my pop-up and catching unbroken waves..."
-            className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[150px]"
-          />
-          <div className="flex justify-between">
+        <div className="space-y-8">
+          <div>
+            <h3 className="text-2xl font-semibold mb-2 text-center">Tell Us About Your Surfing</h3>
+            <p className="text-gray-600 text-center mb-6">
+              As a Kook+ member, our AI uses your surfing style and experience to provide personalized recommendations across all your selected spots. The more you tell us, the better we can match conditions to your abilities and preferences.
+            </p>
+          </div>
+
+          {/* Board Types */}
+          <div className="space-y-4">
+            <h4 className="font-medium text-gray-900">What type of board(s) do you ride? <span className="text-sm text-gray-500">(Select all that apply)</span></h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {boardOptions.map((board) => (
+                <button
+                  key={board.id}
+                  onClick={() => toggleBoardType(board.id)}
+                  className={`p-4 rounded-lg border text-left transition-all ${
+                    surferPreferences.boardTypes.includes(board.id)
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-200'
+                  }`}
+                >
+                  <h5 className="font-medium text-gray-900">{board.label}</h5>
+                  <p className="text-sm text-gray-600 mt-1">{board.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Surfing Style Description */}
+          <div className="space-y-4">
+            <div className="mb-4">
+              <h4 className="font-medium text-gray-900 mb-2">Describe Your Surfing Style and Experience</h4>
+              <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 mb-4">
+                <p className="mb-2"><strong>Why we ask this:</strong> Your description helps our AI understand:</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>What wave conditions match your abilities across different spots</li>
+                  <li>When each of your selected spots will be suitable for your level</li>
+                  <li>Which breaks will be most enjoyable for you</li>
+                  <li>How to tailor surf tips to your progression</li>
+                  <li>Cross-spot recommendations based on your preferences</li>
+                </ul>
+              </div>
+            </div>
+            <textarea
+              value={surferPreferences.description}
+              onChange={(e) => setSurferPreferences(prev => ({ ...prev, description: e.target.value }))}
+              placeholder="Example: I've been surfing for about a year and can catch unbroken waves. I'm comfortable paddling out in head-high waves and working on my bottom turns. I prefer less crowded spots and morning sessions..."
+              className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[150px]"
+            />
+          </div>
+
+          <div className="flex justify-between pt-4">
             <button
               onClick={() => setStep('spot')}
               className="text-blue-500 hover:text-blue-600"
@@ -442,7 +513,7 @@ export default function MultiStepSignUpPaid({
             <button
               onClick={handleSurferTypeSubmit}
               className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-              disabled={!surferType.trim()}
+              disabled={!surferPreferences.description || surferPreferences.boardTypes.length === 0}
             >
               Continue
             </button>
