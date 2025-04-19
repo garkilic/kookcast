@@ -7,6 +7,7 @@ import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { onAuthStateChanged } from 'firebase/auth';
+import BoardSelector from '@/components/BoardSelector';
 
 export default function ProfileSetup() {
   const [surferType, setSurferType] = useState('');
@@ -14,6 +15,7 @@ export default function ProfileSetup() {
   const [error, setError] = useState('');
   const [spots, setSpots] = useState<SurfSpot[]>([]);
   const [homeBreak, setHomeBreak] = useState('');
+  const [boardTypes, setBoardTypes] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -30,6 +32,7 @@ export default function ProfileSetup() {
           const data = userDoc.data();
           setSurferType(data.surferType || '');
           setHomeBreak(data.homeBreak || '');
+          setBoardTypes(data.boardTypes || []);
         }
 
         // Fetch surf spots
@@ -55,6 +58,7 @@ export default function ProfileSetup() {
       await updateDoc(doc(db, 'users', auth.currentUser.uid), {
         surferType,
         homeBreak,
+        boardTypes,
         updatedAt: new Date().toISOString(),
       });
 
@@ -71,8 +75,8 @@ export default function ProfileSetup() {
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-8">
         <h2 className="text-2xl font-bold mb-6 text-center">Update Your Profile</h2>
         {error && <p className="text-red-500 mb-4">{error}</p>}
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
             <label htmlFor="homeBreak" className="block text-gray-700 mb-2">
               Set Your Home Break
             </label>
@@ -93,7 +97,13 @@ export default function ProfileSetup() {
               Your home break is your main surf spot
             </p>
           </div>
-          <div className="mb-6">
+
+          <BoardSelector
+            selectedBoards={boardTypes}
+            onBoardsChange={setBoardTypes}
+          />
+
+          <div>
             <label htmlFor="surferType" className="block text-gray-700 mb-2">
               Describe your surfer type
             </label>
@@ -107,6 +117,7 @@ export default function ProfileSetup() {
               required
             />
           </div>
+
           <button
             type="submit"
             disabled={loading}

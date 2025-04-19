@@ -29,12 +29,12 @@ admin.initializeApp();
 // Configuration constants
 const CONFIG = {
   MAX_DISTANCE_KM: process.env.MAX_DISTANCE_KM || 100,
-  DEFAULT_SKILL_FOCUS: process.env.DEFAULT_SKILL_FOCUS || "Practice staying low and relaxed after your takeoff. You don't need to muscle it — just melt into the board.",
-  DEFAULT_DAILY_CHALLENGE: process.env.DEFAULT_DAILY_CHALLENGE || "Catch one wave and ride it without adjusting your feet. Lock in, commit, and let it unfold.",
+  DEFAULT_SKILL_FOCUS: "Practice your bottom turns and cutbacks",
+  DEFAULT_DAILY_CHALLENGE: "Try to catch at least 5 waves today",
   CHECKIN_URLS: {
-    yes: process.env.CHECKIN_YES_URL || "https://yoursurfapp.com/checkin?status=surfed",
-    no: process.env.CHECKIN_NO_URL || "https://yoursurfapp.com/checkin?status=rest",
-    skipped: process.env.CHECKIN_SKIPPED_URL || "https://yoursurfapp.com/checkin?status=blocked"
+    yes: "https://kook-cast.com/surf-diary/new",
+    no: "https://kook-cast.com/surf-diary/new",
+    skipped: "https://kook-cast.com/surf-diary/new"
   }
 };
 
@@ -122,7 +122,7 @@ app.post('/send', async (req, res) => {
     if (req.body.location) {
       try {
         console.log(`[AI_REPORT] Generating surf report for ${req.body.location}`);
-        const surfReport = await generateSurfReport(req.body.location, req.body.surferType, openAiKey);
+        const surfReport = await generateSurfReport(req.body.location, req.body.surferType, req.body.userId, req.body.apiKey, req.body.userData);
         console.log(`[AI_REPORT] Successfully generated report for ${req.body.location}`);
         
         const formattedLocation = formatLocation(surfReport.location);
@@ -242,12 +242,15 @@ app.post('/send', async (req, res) => {
             air_temp: weatherDescriptions.air_temp,
             clouds: weatherDescriptions.clouds,
             rain_chance: weatherDescriptions.rain_chance,
+            tide_summary: weatherDescriptions.tide_summary,
             skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
             daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
             yes_url: CONFIG.CHECKIN_URLS.yes,
             no_url: CONFIG.CHECKIN_URLS.no,
             skipped_url: CONFIG.CHECKIN_URLS.skipped,
-            subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`
+            subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`,
+            user_boards: surfReport.userData.boards,
+            recent_diary_entries: surfReport.userData.recentDiaryEntries
           };
 
           msg = {
@@ -532,12 +535,21 @@ const SurfReportGenerator = {
     }
   },
 
-  async generateAIReport(location, weatherData, apiKey) {
+  async generateAIReport(location, weatherData, apiKey, userData = null) {
     const openai = new OpenAI({ apiKey });
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
     const formattedLocation = formatLocation(location);
     
+    // Format user's boards and diary entries for context
+    const userContext = userData ? `
+User's surfboards: ${userData.userBoards}
+Recent surf sessions:
+${userData.recentDiaryEntries.map(entry => 
+  `- ${entry.date}: ${entry.rating} (${entry.hadFun ? 'had fun' : 'did not have fun'})${entry.description ? ` - ${entry.description}` : ''}`
+).join('\n')}
+` : '';
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview",
       messages: [
@@ -547,6 +559,9 @@ const SurfReportGenerator = {
           Your tone is warm, encouraging, and deeply knowledgeable. You write as if you're personally guiding each surfer, 
           using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
           You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
+          
+          Consider the user's surfboards and recent surf sessions when making recommendations:
+          ${userContext}
           
           Generate a surf report for ${formattedLocation} on ${formattedDate}. 
           Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
@@ -813,13 +828,57 @@ async function getSpotCoordinates(location) {
 }
 
 // Main surf report generation function
-async function generateSurfReport(location, surferType, apiKey) {
+async function generateSurfReport(location, surferType, userId, apiKey, userData = null) {
   try {
     console.log('[INFO] Generating surf report:', {
       location,
       surferType,
+      userId,
       timestamp: new Date().toISOString()
     });
+
+    // Get user's data from Firestore if not provided
+    if (!userData) {
+      const userDoc = await admin.firestore().collection('users').doc(userId).get();
+      const userData = userDoc.data();
+      
+      // Get user's surfboards
+      const boardTypes = userData?.boardTypes || [];
+      const boardLabels = {
+        shortboard: 'Shortboard',
+        longboard: 'Longboard',
+        fish: 'Fish',
+        hybrid: 'Hybrid',
+        funboard: 'Funboard',
+        gun: 'Gun',
+        softtop: 'Soft Top'
+      };
+      const formattedBoards = boardTypes.map(board => boardLabels[board]).join(', ') || 'No boards selected';
+
+      // Get user's recent diary entries for context
+      const diaryEntries = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('surfEntries')
+        .orderBy('timestamp', 'desc')
+        .limit(5)
+        .get();
+
+      const recentEntries = diaryEntries.docs.map(doc => {
+        const data = doc.data();
+        return {
+          date: new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+          rating: data.rating,
+          hadFun: data.hadFun,
+          description: data.description
+        };
+      });
+
+      userData = {
+        userBoards: formattedBoards,
+        recentDiaryEntries: recentEntries
+      };
+    }
 
     const coordinates = await getSpotCoordinates(location);
     const currentHourIndex = new Date().getHours();
@@ -838,7 +897,7 @@ async function generateSurfReport(location, surferType, apiKey) {
       currentHourIndex
     );
     
-    const report = await SurfReportGenerator.generateAIReport(location, formattedData, apiKey);
+    const report = await SurfReportGenerator.generateAIReport(location, formattedData, apiKey, userData);
     
     // Ensure go_today is always included with a valid value
     const validGoToday = ['yes', 'no', 'maybe'].includes(report.go_today?.toLowerCase()) 
@@ -850,7 +909,8 @@ async function generateSurfReport(location, surferType, apiKey) {
       location: formatLocation(location),
       date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
       weatherData: formattedData,
-      go_today: validGoToday
+      go_today: validGoToday,
+      userData
     };
   } catch (error) {
     console.error('[ERROR] API Error in generateSurfReport:', {
@@ -932,7 +992,10 @@ exports.sendSurfReports = onSchedule({
         // Process each surf location for the user
         for (const location of surfLocations) {
           console.log(`[PROCESSING_USER] Generating report for ${user.email} - Location: ${location}`);
-          const surfReport = await generateSurfReport(location, user.surferType, openAiApiKey);
+          const surfReport = await generateSurfReport(location, user.surferType, user.uid, openAiApiKey, {
+            userBoards: user.boardTypes,
+            recentDiaryEntries: user.recentDiaryEntries
+          });
 
           const formattedLocation = formatLocation(surfReport.location);
           const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
@@ -1137,24 +1200,42 @@ app.post('/sync-email-verification', async (req, res) => {
 exports.testSendEmails = onRequest({
   cors: true,
   secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
-  memory: "256MiB",
-  timeoutSeconds: 540, // Increased to 9 minutes
-  minInstances: 1,
-  maxInstances: 10
+  memory: '256MiB'
 }, async (req, res) => {
   try {
-    console.log('[TEST_SEND_EMAILS] Starting immediate email distribution');
+    const { email } = req.body;
     
-    // Send immediate response to prevent timeout
-    res.json({
-      status: 'processing',
-      message: 'Email distribution started. Check Firebase logs for progress.'
-    });
+    if (!email) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Email is required'
+      });
+    }
 
-    const { email, location, firstName, surferType } = req.body;
+    // Get user data from Firestore
+    const userSnapshot = await admin.firestore()
+      .collection('users')
+      .where('email', '==', email)
+      .limit(1)
+      .get();
 
-    if (!email || !location) {
-      throw new Error('Email and location are required');
+    if (userSnapshot.empty) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    const userDoc = userSnapshot.docs[0];
+    const user = userDoc.data();
+    const userId = userDoc.id;
+    const surfLocations = user.surfLocations || [];
+
+    if (surfLocations.length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User has no surf locations set'
+      });
     }
 
     const sendGridApiKey = sendgridApiKey.value();
@@ -1162,50 +1243,60 @@ exports.testSendEmails = onRequest({
     const templateId = sendgridTemplateId.value();
     const openAiApiKey = openaiApiKey.value();
 
-    // Log SendGrid configuration (without sensitive data)
-    console.log('[TEST_SEND_EMAILS] SendGrid Configuration:', {
-      fromEmail,
-      templateId,
-      hasApiKey: !!sendGridApiKey
-    });
-
     sgMail.setApiKey(sendGridApiKey);
 
-    try {
+    // Process each surf location for the user
+    for (const location of surfLocations) {
       console.log(`[TEST_SEND_EMAILS] Generating report for ${email} - Location: ${location}`);
-      const surfReport = await generateSurfReport(location, surferType, openAiApiKey);
+      
+      // Get user's recent diary entries for context
+      const diaryEntries = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('surfEntries')
+        .orderBy('timestamp', 'desc')
+        .limit(5)
+        .get();
 
-      // Helper function to get condition emoji based on go_today decision
-      const getConditionEmoji = (goToday) => {
-        if (!goToday) return '🤔'; // Default emoji for undefined/missing value
-        switch (goToday.toLowerCase()) {
-          case 'yes':
-            return '🟢';
-          case 'no':
-            return '🔴';
-          case 'maybe':
-            return '🟡';
-          default:
-            return '🤔';
-        }
+      const recentEntries = diaryEntries.docs.map(doc => {
+        const data = doc.data();
+        return {
+          date: new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+          rating: data.rating,
+          hadFun: data.hadFun,
+          description: data.description
+        };
+      });
+      
+      // Get user's boards
+      const boardTypes = user.boardTypes || [];
+      const boardLabels = {
+        shortboard: 'Shortboard',
+        longboard: 'Longboard',
+        fish: 'Fish',
+        hybrid: 'Hybrid',
+        funboard: 'Funboard',
+        gun: 'Gun',
+        softtop: 'Soft Top'
       };
+      const formattedBoards = boardTypes.map(board => boardLabels[board]).join(', ') || 'No boards selected';
 
-      // Format date as "Month Day"
-      const formatDate = (date) => {
-        return new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-      };
+      const surfReport = await generateSurfReport(location, user.surferType, userId, openAiApiKey, {
+        recentDiaryEntries: recentEntries,
+        userBoards: formattedBoards
+      });
 
       const formattedLocation = formatLocation(surfReport.location);
-      const formattedDate = formatDate(surfReport.date);
-      const conditionEmoji = getConditionEmoji(surfReport.go_today);
-      const subject = `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`;
+      const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
 
-      console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
+      // Determine condition emoji based on go_today value
+      const conditionEmoji = surfReport.go_today === 'yes' ? '🏄‍♂️' : 
+                           surfReport.go_today === 'no' ? '🌊' : '🤔';
 
       // Format template data
       const templateData = {
         location: formattedLocation,
-        date: formattedDate,
+        date: surfReport.date,
         vibe_description: surfReport.vibe,
         best_time: surfReport.best_time,
         second_best_time: surfReport.second_best,
@@ -1224,7 +1315,9 @@ exports.testSendEmails = onRequest({
         yes_url: CONFIG.CHECKIN_URLS.yes,
         no_url: CONFIG.CHECKIN_URLS.no,
         skipped_url: CONFIG.CHECKIN_URLS.skipped,
-        subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`
+        subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`,
+        user_boards: surfReport.userData?.userBoards || formattedBoards,
+        recent_diary_entries: surfReport.userData?.recentDiaryEntries || recentEntries
       };
 
       // Send email
@@ -1236,32 +1329,13 @@ exports.testSendEmails = onRequest({
         dynamicTemplateData: templateData
       });
 
-      // Log successful email send
-      await admin.firestore().collection('emailLogs').add({
-        type: 'surf_report',
-        timestamp: new Date().toISOString(),
-        email: email,
-        location: location,
-        status: 'success',
-        source: 'test_send'
-      });
-
       console.log(`[TEST_SEND_EMAILS] Successfully sent report to ${email} for location ${location}`);
-    } catch (error) {
-      console.error(`[TEST_SEND_EMAILS] Failed to process email ${email}:`, error);
-      
-      // Log failed email attempt
-      await admin.firestore().collection('emailLogs').add({
-        type: 'surf_report',
-        timestamp: new Date().toISOString(),
-        email: email,
-        status: 'error',
-        error: error.message,
-        source: 'test_send'
-      });
-      
-      throw error;
     }
+
+    res.json({
+      status: 'success',
+      message: 'Email distribution started. Check Firebase logs for progress.'
+    });
 
   } catch (error) {
     console.error('[TEST_SEND_EMAILS] Error:', error);
@@ -1269,6 +1343,12 @@ exports.testSendEmails = onRequest({
     await admin.firestore().collection('emailLogs').add({
       type: 'test_send_error',
       timestamp: new Date().toISOString(),
+      error: error.message
+    });
+    
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to send test email',
       error: error.message
     });
   }
