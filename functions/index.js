@@ -7,6 +7,8 @@ const cors = require('cors');
 const sgMail = require('@sendgrid/mail');
 const OpenAI = require('openai');
 const functions = require('firebase-functions');
+const fetch = require('node-fetch');
+const xml2js = require('xml2js');
 
 // Define secrets
 const sendgridApiKey = defineSecret('SENDGRID_API_KEY');
@@ -23,6 +25,27 @@ app.use(express.json());
 
 // Initialize Firebase Admin
 admin.initializeApp();
+
+// Configuration constants
+const CONFIG = {
+  MAX_DISTANCE_KM: process.env.MAX_DISTANCE_KM || 100,
+  DEFAULT_SKILL_FOCUS: process.env.DEFAULT_SKILL_FOCUS || "Practice staying low and relaxed after your takeoff. You don't need to muscle it — just melt into the board.",
+  DEFAULT_DAILY_CHALLENGE: process.env.DEFAULT_DAILY_CHALLENGE || "Catch one wave and ride it without adjusting your feet. Lock in, commit, and let it unfold.",
+  CHECKIN_URLS: {
+    yes: process.env.CHECKIN_YES_URL || "https://yoursurfapp.com/checkin?status=surfed",
+    no: process.env.CHECKIN_NO_URL || "https://yoursurfapp.com/checkin?status=rest",
+    skipped: process.env.CHECKIN_SKIPPED_URL || "https://yoursurfapp.com/checkin?status=blocked"
+  }
+};
+
+// Utility functions
+function formatLocation(location) {
+  if (!location) return 'Unknown Location';
+  return location
+    .split(/[-\s]/)  // Split on both hyphens and spaces
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
 
 // Health check endpoint
 app.get('/', (req, res) => {
@@ -93,49 +116,164 @@ app.post('/send', async (req, res) => {
     }
 
     let templateData = req.body.templateData;
+    let msg;
 
     // If location is provided, generate AI report
     if (req.body.location) {
       try {
         console.log(`[AI_REPORT] Generating surf report for ${req.body.location}`);
-        const surfReport = await generateSurfReport(req.body.location, openAiKey);
+        const surfReport = await generateSurfReport(req.body.location, req.body.surferType, openAiKey);
         console.log(`[AI_REPORT] Successfully generated report for ${req.body.location}`);
         
-        // Update template data with AI-generated content
-        templateData = {
-          ...templateData,
-          subject: req.body.location + " Surf Report - " + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-          email_header: "🌊 Daily Surf Report",
-          forecast_title: `${req.body.location} Forecast`,
-          preview_text: surfReport.full_report.substring(0, 100),
-          forecast_time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-          main_alert: surfReport.main_alert,
-          best_time_to_surf: surfReport.best_time,
-          subheadline: surfReport.wave_size,
-          conditions_summary: surfReport.full_report,
-          wave_size: surfReport.wave_size,
-          wind: surfReport.wind,
-          water_temp: surfReport.water_temp,
-          vibe: surfReport.vibe,
-          morning_conditions: surfReport.morning_conditions,
-          afternoon_conditions: surfReport.afternoon_conditions,
-          tip1: surfReport.tips[0],
-          tip2: surfReport.tips[1],
-          tip3: surfReport.tips[2]
+        const formattedLocation = formatLocation(surfReport.location);
+        const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
+
+        console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
+
+        // Create weather context for AI interpretation
+        const weatherContext = {
+          current: {
+            temperature: Math.round((surfReport.weatherData.current.temperature * 9/5) + 32),
+            windSpeed: surfReport.weatherData.current.windSpeed,
+            windDirection: surfReport.weatherData.current.windDirection,
+            waterTemperature: surfReport.weatherData.current.buoyData?.waterTemperature ? 
+              Math.round((surfReport.weatherData.current.buoyData.waterTemperature * 9/5) + 32) : null,
+            waveHeight: surfReport.weatherData.current.buoyData?.waveHeight,
+            swellPeriod: surfReport.weatherData.current.buoyData?.swellPeriod,
+            tide: surfReport.weatherData.current.buoyData?.tide,
+            cloudCover: surfReport.weatherData.current.cloudCover,
+            precipitation: surfReport.weatherData.current.precipitation
+          },
+          today: {
+            maxTemp: Math.round((surfReport.weatherData.today.maxTemp * 9/5) + 32),
+            minTemp: Math.round((surfReport.weatherData.today.minTemp * 9/5) + 32),
+            maxWindSpeed: surfReport.weatherData.today.maxWindSpeed
+          }
         };
+
+        try {
+          // Generate descriptive text using OpenAI
+          const openai = new OpenAI({ apiKey: openAiKey });
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4-turbo-preview",
+            messages: [
+              {
+                role: "system",
+                content: `You are an experienced surf coach with decades of experience teaching surfers of all levels. 
+                Your tone is warm, encouraging, and deeply knowledgeable. You write as if you're personally guiding each surfer, 
+                using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
+                You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
+                
+                Generate a surf report for ${formattedLocation} on ${formattedDate}. 
+                Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
+                The go_today field MUST be either 'yes', 'no', or 'maybe' - no other values are allowed.
+                
+                For best_time and second_best_time, analyze the provided tide, wind, and swell data to determine:
+                - The optimal time window when conditions align best for surfing
+                - A secondary time window as a backup option
+                These times MUST be based on the actual forecast data provided, considering:
+                - Tide conditions
+                - Wind speed and direction
+                - Wave height and period
+                - Swell direction
+                - Weather conditions
+                
+                Format time ranges exactly as "X:XX AM/PM - Y:YY AM/PM" (e.g. "6:30 AM - 9:00 AM")
+                
+                For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
+                - vibe_description: Describe the overall surf conditions and atmosphere in a warm, encouraging way
+                - best_time: The optimal time window for surfing, explaining why it's the best time
+                - second_best_time: The secondary time window for surfing, explaining why it's a good alternative
+                - gear: Suggest appropriate board and wetsuit based on conditions, explaining your recommendation
+                - water_temp: Describe the water temperature conditions in a way that helps prepare the surfer
+                - wind_description: Detail the wind speed, direction, and how it affects the surf, explaining what to expect
+                - go_today: Whether to surf today (yes/no/maybe), with a brief explanation of your recommendation
+                - go_reasoning: Explain the swell conditions, size, period, and direction in a way that helps the surfer understand
+                - weather_summary: Describe the overall weather conditions in an encouraging, helpful way
+                - air_temp: Describe the air temperature conditions to help with preparation
+                - clouds: Describe the cloud cover conditions and how they affect the session
+                - rain_chance: Describe the precipitation probability and its impact on the session
+                - tide_summary: Explain the tide movement and its impact on the break in a way that helps the surfer time their session
+                - skill_focus: Suggest a specific skill to focus on based on conditions, explaining why it's a good opportunity
+                - daily_challenge: Provide a specific challenge to try based on conditions, making it fun and achievable
+                
+                Format your response as a JSON object with the following structure:
+                {
+                  "vibe": "warm, encouraging description based on all conditions",
+                  "best_time": "X:XX AM/PM - Y:YY AM/PM based on forecast",
+                  "second_best": "X:XX AM/PM - Y:YY AM/PM based on forecast",
+                  "gear_recommendation": "personalized suggestion based on conditions",
+                  "water_temp": "helpful description based on water temperature",
+                  "wind_summary": "detailed description based on wind data",
+                  "go_today": "yes/no/maybe",
+                  "swell_summary": "clear explanation based on swell data",
+                  "weather_summary": "encouraging description based on weather data",
+                  "air_temp": "preparatory description based on air temperature",
+                  "clouds": "helpful description based on cloud cover",
+                  "rain_chance": "clear description based on precipitation",
+                  "tide_summary": "helpful explanation based on tide data",
+                  "skill_focus": "personalized suggestion based on conditions",
+                  "daily_challenge": "fun, achievable challenge based on conditions"
+                }`
+              },
+              {
+                role: "user",
+                content: `Generate a surf report for ${formattedLocation} on ${formattedDate} using this weather data: ${JSON.stringify(weatherContext)}`
+              }
+            ],
+            response_format: { type: "json_object" }
+          });
+
+          const weatherDescriptions = JSON.parse(completion.choices[0].message.content);
+
+          // Format template data
+          const templateData = {
+            location: formattedLocation,
+            date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+            vibe_description: surfReport.vibe,
+            best_time: surfReport.best_time,
+            second_best_time: surfReport.second_best,
+            gear: surfReport.gear_recommendation,
+            water_temp: weatherDescriptions.water_temp,
+            wind_description: surfReport.wind_summary,
+            go_today: surfReport.go_today,
+            go_reasoning: surfReport.swell_summary,
+            weather_summary: weatherDescriptions.weather_summary,
+            air_temp: weatherDescriptions.air_temp,
+            clouds: weatherDescriptions.clouds,
+            rain_chance: weatherDescriptions.rain_chance,
+            skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
+            daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
+            yes_url: CONFIG.CHECKIN_URLS.yes,
+            no_url: CONFIG.CHECKIN_URLS.no,
+            skipped_url: CONFIG.CHECKIN_URLS.skipped,
+            subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`
+          };
+
+          msg = {
+            to: req.body.to,
+            from: fromEmail,
+            subject: subject,
+            templateId: templateId,
+            dynamicTemplateData: templateData
+          };
+        } catch (error) {
+          console.error('Error generating weather descriptions:', error);
+          throw new Error('Failed to generate weather descriptions');
+        }
       } catch (error) {
         console.error(`[AI_ERROR] Failed to generate report for ${req.body.location}:`, error);
         throw new Error('Failed to generate surf report');
       }
+    } else {
+      msg = {
+        to: req.body.to,
+        from: fromEmail,
+        subject: `Go surf at ${surfReport.best_time} at ${formattedLocation}`,
+        templateId: templateId,
+        dynamicTemplateData: templateData
+      };
     }
-
-    const msg = {
-      to: req.body.to,
-      from: fromEmail,
-      subject: templateData.subject || req.body.subject,
-      templateId: templateId,
-      dynamicTemplateData: templateData
-    };
 
     // Send email
     await sgMail.send(msg);
@@ -159,8 +297,8 @@ app.post('/send', async (req, res) => {
   }
 });
 
-// Generate surf report using OpenAI
-async function generateSurfReport(location, apiKey) {
+// Analyze surfer type and determine skill level and recommendations
+async function analyzeSurferType(surferType, apiKey) {
   try {
     const openai = new OpenAI({
       apiKey: apiKey,
@@ -170,36 +308,44 @@ async function generateSurfReport(location, apiKey) {
       messages: [
         {
           role: "system",
-          content: `You are a surf report generator. Generate a detailed surf report for ${location} with the following sections:
-          1. Main Alert (one sentence summary)
-          2. Wave Size and Conditions
-          3. Wind Conditions
-          4. Water Temperature
-          5. Overall Vibe
-          6. Best Time to Surf
-          7. Morning Conditions (5:00-8:00am)
-          8. Afternoon Conditions (4:00-6:00pm)
-          9. Three Tips for Surfers
+          content: `You are a surf coach analyzing a surfer's type to determine their skill level and needs.
+          Based on the surfer type description, determine:
+          1. Skill level (beginner/intermediate/advanced)
+          2. Key areas to focus on (with specific, measurable goals)
+          3. Appropriate gear recommendations
+          4. Suitable challenges (with specific, measurable goals)
           
-          IMPORTANT: Your response must be a valid JSON object with these exact keys and types:
+          Return a JSON object with this structure:
           {
-            "main_alert": "string",
-            "wave_size": "string",
-            "wind": "string",
-            "water_temp": "string",
-            "vibe": "string",
-            "best_time": "string",
-            "morning_conditions": "string",
-            "afternoon_conditions": "string",
-            "tips": ["string", "string", "string"],
-            "full_report": "string"
+            "skillLevel": "string",
+            "focusAreas": [
+              {
+                "area": "string",
+                "metric": "string",
+                "target": "string"
+              }
+            ],
+            "gearRecommendations": ["string"],
+            "challengeTypes": [
+              {
+                "type": "string",
+                "metric": "string",
+                "target": "string"
+              }
+            ]
           }
           
-          The full_report should be a detailed narrative of all conditions. Do not include any text outside the JSON object.`
+          Example focus areas:
+          - "area": "Paddling", "metric": "Number of waves caught", "target": "Catch 5 waves in a session"
+          - "area": "Bottom Turn", "metric": "Success rate", "target": "Execute 3 clean bottom turns"
+          
+          Example challenge types:
+          - "type": "Wave Count", "metric": "Number of waves", "target": "Catch 8 waves in one session"
+          - "type": "Timing", "metric": "Seconds", "target": "Paddle out in under 5 minutes"`
         },
         {
           role: "user",
-          content: `Generate a surf report for ${location}`
+          content: `Analyze this surfer type: ${surferType}`
         }
       ],
       model: "gpt-4"
@@ -207,7 +353,511 @@ async function generateSurfReport(location, apiKey) {
 
     return JSON.parse(completion.choices[0].message.content);
   } catch (error) {
-    console.error('Error generating surf report:', error);
+    console.error('Error analyzing surfer type:', error);
+    throw error;
+  }
+}
+
+// Weather Data Processing Module
+const WeatherProcessor = {
+  async fetchMarineData(latitude, longitude) {
+    const response = await fetch(
+      `https://marine-api.open-meteo.com/v1/marine?latitude=${latitude}&longitude=${longitude}&hourly=wave_height,swell_wave_height,wind_wave_height,swell_wave_direction,wind_wave_direction,swell_wave_period,swell_wave_peak_period&daily=wave_height_max,swell_wave_height_max,wind_wave_height_max,swell_wave_direction_dominant,wind_wave_direction_dominant,swell_wave_period_max,swell_wave_peak_period_max`
+    );
+    return response.json();
+  },
+
+  async fetchWeatherData(latitude, longitude) {
+    const response = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relativehumidity_2m,precipitation_probability,precipitation,rain,showers,snowfall,pressure_msl,surface_pressure,cloudcover,cloudcover_low,cloudcover_mid,cloudcover_high,windspeed_10m,winddirection_10m,windgusts_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,rain_sum,showers_sum,snowfall_sum,precipitation_hours,windspeed_10m_max,windgusts_10m_max,winddirection_10m_dominant&timezone=auto`
+    );
+    return response.json();
+  },
+
+  formatWeatherData(marineData, weatherData, buoyData, currentHourIndex) {
+    // Convert wave heights from meters to feet (1m = 3.28084ft)
+    const convertToFeet = (meters) => meters ? Math.round(meters * 3.28084 * 10) / 10 : null;
+    
+    // Convert wind speed from km/h to mph (1km/h = 0.621371mph)
+    const convertToMph = (kph) => kph ? Math.round(kph * 0.621371 * 10) / 10 : null;
+    
+    // Convert temperature from Celsius to Fahrenheit
+    const convertToFahrenheit = (celsius) => celsius ? Math.round((celsius * 9/5) + 32) : null;
+
+    return {
+      current: {
+        waveHeight: convertToFeet(marineData.hourly.wave_height[currentHourIndex]),
+        swellHeight: convertToFeet(marineData.hourly.swell_wave_height[currentHourIndex]),
+        windWaveHeight: convertToFeet(marineData.hourly.wind_wave_height[currentHourIndex]),
+        swellDirection: marineData.hourly.swell_wave_direction[currentHourIndex],
+        windWaveDirection: marineData.hourly.wind_wave_direction[currentHourIndex],
+        swellPeriod: marineData.hourly.swell_wave_period[currentHourIndex],
+        swellPeakPeriod: marineData.hourly.swell_wave_peak_period[currentHourIndex],
+        temperature: convertToFahrenheit(weatherData.hourly.temperature_2m[currentHourIndex]),
+        windSpeed: convertToMph(weatherData.hourly.windspeed_10m[currentHourIndex]),
+        windDirection: weatherData.hourly.winddirection_10m[currentHourIndex],
+        windGusts: convertToMph(weatherData.hourly.windgusts_10m[currentHourIndex]),
+        buoyData: buoyData ? {
+          waterTemperature: convertToFahrenheit(buoyData.data.waterTemperature),
+          waveHeight: convertToFeet(buoyData.data.waveHeight),
+          wavePeriod: buoyData.data.dominantWavePeriod,
+          tide: buoyData.data.tide
+        } : null
+      },
+      today: {
+        maxWaveHeight: convertToFeet(marineData.daily.wave_height_max[0]),
+        maxSwellHeight: convertToFeet(marineData.daily.swell_wave_height_max[0]),
+        maxWindWaveHeight: convertToFeet(marineData.daily.wind_wave_height_max[0]),
+        maxTemp: convertToFahrenheit(weatherData.daily.temperature_2m_max[0]),
+        minTemp: convertToFahrenheit(weatherData.daily.temperature_2m_min[0]),
+        maxWindSpeed: convertToMph(weatherData.daily.windspeed_10m_max[0])
+      }
+    };
+  }
+};
+
+// Buoy Data Module
+const BuoyData = {
+  async findNearestStation(latitude, longitude) {
+    const parser = new xml2js.Parser();
+    const stationsResponse = await fetch('https://www.ndbc.noaa.gov/activestations.xml');
+    const stationsText = await stationsResponse.text();
+    const stationsResult = await parser.parseStringPromise(stationsText);
+    const stations = stationsResult?.stations?.station || [];
+    
+    return this.calculateNearestStation(stations, latitude, longitude);
+  },
+
+  calculateNearestStation(stations, latitude, longitude) {
+    let nearestStation = null;
+    let minDistance = Infinity;
+    
+    stations.forEach(station => {
+      if (!station?.lat?.[0] || !station?.lon?.[0]) return;
+      
+      const stationLat = parseFloat(station.lat[0]);
+      const stationLon = parseFloat(station.lon[0]);
+      const distance = this.calculateDistance(latitude, longitude, stationLat, stationLon);
+      
+      if (distance < minDistance && distance <= CONFIG.MAX_DISTANCE_KM) {
+        minDistance = distance;
+        nearestStation = station;
+      }
+    });
+    
+    return { station: nearestStation, distance: minDistance };
+  },
+
+  calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  },
+
+  async fetchStationData(stationId) {
+    const response = await fetch(`https://www.ndbc.noaa.gov/data/realtime2/${stationId}.txt`);
+    const dataText = await response.text();
+    return this.parseStationData(dataText);
+  },
+
+  parseStationData(dataText) {
+    const lines = dataText.split('\n');
+    const headers = lines[0].split(/\s+/);
+    const data = lines[1].split(/\s+/);
+    
+    return {
+      time: data[0],
+      windDirection: parseFloat(data[1]),
+      windSpeed: parseFloat(data[2]),
+      windGust: parseFloat(data[3]),
+      waveHeight: parseFloat(data[4]),
+      dominantWavePeriod: parseFloat(data[5]),
+      averageWavePeriod: parseFloat(data[6]),
+      waveDirection: parseFloat(data[7]),
+      seaLevelPressure: parseFloat(data[8]),
+      airTemperature: parseFloat(data[9]),
+      waterTemperature: parseFloat(data[10]),
+      dewPoint: parseFloat(data[11]),
+      visibility: parseFloat(data[12]),
+      pressureTendency: parseFloat(data[13]),
+      tide: parseFloat(data[14])
+    };
+  }
+};
+
+// Surf Report Generation Module
+const SurfReportGenerator = {
+  async generateReport(location, surferType, apiKey) {
+    const coordinates = await getSpotCoordinates(location);
+    const currentHourIndex = new Date().getHours();
+    
+    // Fetch all data in parallel
+    const [marineData, weatherData, buoyData] = await Promise.all([
+      WeatherProcessor.fetchMarineData(coordinates.latitude, coordinates.longitude),
+      WeatherProcessor.fetchWeatherData(coordinates.latitude, coordinates.longitude),
+      this.fetchBuoyData(coordinates.latitude, coordinates.longitude)
+    ]);
+    
+    const formattedData = WeatherProcessor.formatWeatherData(
+      marineData,
+      weatherData,
+      buoyData,
+      currentHourIndex
+    );
+    
+    return this.generateAIReport(location, formattedData, apiKey);
+  },
+
+  async fetchBuoyData(latitude, longitude) {
+    try {
+      const { station, distance } = await BuoyData.findNearestStation(latitude, longitude);
+      if (!station) return null;
+      
+      const stationData = await BuoyData.fetchStationData(station.id[0]);
+      return {
+        stationId: station.id[0],
+        stationName: station.name[0],
+        distance,
+        data: stationData
+      };
+    } catch (error) {
+      console.error('Error fetching buoy data:', error);
+      return null;
+    }
+  },
+
+  async generateAIReport(location, weatherData, apiKey) {
+    const openai = new OpenAI({ apiKey });
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    const formattedLocation = formatLocation(location);
+    
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo-preview",
+      messages: [
+        {
+          role: "system",
+          content: `You are an experienced surf coach with decades of experience teaching surfers of all levels. 
+          Your tone is warm, encouraging, and deeply knowledgeable. You write as if you're personally guiding each surfer, 
+          using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
+          You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
+          
+          Generate a surf report for ${formattedLocation} on ${formattedDate}. 
+          Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
+          The go_today field MUST be either 'yes', 'no', or 'maybe' - no other values are allowed.
+          
+          For best_time and second_best_time, analyze the provided tide, wind, and swell data to determine:
+          - The optimal time window when conditions align best for surfing
+          - A secondary time window as a backup option
+          These times MUST be based on the actual forecast data provided, considering:
+          - Tide conditions
+          - Wind speed and direction
+          - Wave height and period
+          - Swell direction
+          - Weather conditions
+          
+          Format time ranges exactly as "X:XX AM/PM - Y:YY AM/PM" (e.g. "6:30 AM - 9:00 AM")
+          
+          For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
+          - vibe_description: Describe the overall surf conditions and atmosphere in a warm, encouraging way
+          - best_time: The optimal time window for surfing, explaining why it's the best time
+          - second_best_time: The secondary time window for surfing, explaining why it's a good alternative
+          - gear: Suggest appropriate board and wetsuit based on conditions, explaining your recommendation
+          - water_temp: Describe the water temperature conditions in a way that helps prepare the surfer
+          - wind_description: Detail the wind speed, direction, and how it affects the surf, explaining what to expect
+          - go_today: Whether to surf today (yes/no/maybe), with a brief explanation of your recommendation
+          - go_reasoning: Explain the swell conditions, size, period, and direction in a way that helps the surfer understand
+          - weather_summary: Describe the overall weather conditions in an encouraging, helpful way
+          - air_temp: Describe the air temperature conditions to help with preparation
+          - clouds: Describe the cloud cover conditions and how they affect the session
+          - rain_chance: Describe the precipitation probability and its impact on the session
+          - tide_summary: Explain the tide movement and its impact on the break in a way that helps the surfer time their session
+          - skill_focus: Suggest a specific skill to focus on based on conditions, explaining why it's a good opportunity
+          - daily_challenge: Provide a specific challenge to try based on conditions, making it fun and achievable
+          
+          Format your response as a JSON object with the following structure:
+          {
+            "vibe": "warm, encouraging description based on all conditions",
+            "best_time": "X:XX AM/PM - Y:YY AM/PM based on forecast",
+            "second_best": "X:XX AM/PM - Y:YY AM/PM based on forecast",
+            "gear_recommendation": "personalized suggestion based on conditions",
+            "water_temp": "helpful description based on water temperature",
+            "wind_summary": "detailed description based on wind data",
+            "go_today": "yes/no/maybe",
+            "swell_summary": "clear explanation based on swell data",
+            "weather_summary": "encouraging description based on weather data",
+            "air_temp": "preparatory description based on air temperature",
+            "clouds": "helpful description based on cloud cover",
+            "rain_chance": "clear description based on precipitation",
+            "tide_summary": "helpful explanation based on tide data",
+            "skill_focus": "personalized suggestion based on conditions",
+            "daily_challenge": "fun, achievable challenge based on conditions"
+          }`
+        },
+        {
+          role: "user",
+          content: `Generate a surf report for ${formattedLocation} on ${formattedDate} using this weather data: ${JSON.stringify(weatherData)}`
+        }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    const report = JSON.parse(completion.choices[0].message.content);
+    
+    // Ensure go_today is always a valid value
+    const validGoToday = ['yes', 'no', 'maybe'].includes(report.go_today?.toLowerCase()) 
+      ? report.go_today.toLowerCase() 
+      : 'maybe';
+
+    return {
+      ...report,
+      location: formattedLocation,
+      date: formattedDate,
+      go_today: validGoToday
+    };
+  }
+};
+
+// Error Handling and Logging Module
+const Logger = {
+  logError(error, context) {
+    console.error(`[ERROR] ${context}:`, {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  logInfo(message, data) {
+    console.log(`[INFO] ${message}:`, {
+      ...data,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  logWarning(message, data) {
+    console.warn(`[WARNING] ${message}:`, {
+      ...data,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+// Error Handling Utilities
+const ErrorHandler = {
+  handleApiError(error, context) {
+    Logger.logError(error, `API Error in ${context}`);
+    return {
+      success: false,
+      error: error.message,
+      context
+    };
+  },
+
+  handleDataError(error, context) {
+    Logger.logError(error, `Data Processing Error in ${context}`);
+    return {
+      success: false,
+      error: 'Failed to process data',
+      context
+    };
+  },
+
+  handleValidationError(message, context) {
+    Logger.logWarning(message, { context });
+    return {
+      success: false,
+      error: message,
+      context
+    };
+  }
+};
+
+// Data Validation Module
+const Validator = {
+  validateLocation(location) {
+    if (!location || typeof location !== 'string') {
+      return ErrorHandler.handleValidationError(
+        'Invalid location format',
+        'validateLocation'
+      );
+    }
+    return { success: true };
+  },
+
+  validateSurferType(surferType) {
+    const validTypes = ['beginner', 'intermediate', 'advanced'];
+    if (!validTypes.includes(surferType?.toLowerCase())) {
+      return ErrorHandler.handleValidationError(
+        'Invalid surfer type',
+        'validateSurferType'
+      );
+    }
+    return { success: true };
+  },
+
+  validateApiKey(apiKey) {
+    if (!apiKey || typeof apiKey !== 'string') {
+      return ErrorHandler.handleValidationError(
+        'Invalid API key format',
+        'validateApiKey'
+      );
+    }
+    return { success: true };
+  },
+
+  validateWeatherData(weatherData) {
+    if (!weatherData || typeof weatherData !== 'object') {
+      return ErrorHandler.handleValidationError(
+        'Invalid weather data format',
+        'validateWeatherData'
+      );
+    }
+    return { success: true };
+  }
+};
+
+// Rate Limiting and Caching Module
+const RateLimiter = {
+  requests: new Map(),
+  CACHE_DURATION: 5 * 60 * 1000, // 5 minutes
+  MAX_REQUESTS: 10,
+  WINDOW_MS: 60 * 1000, // 1 minute
+
+  checkRateLimit(ip) {
+    const now = Date.now();
+    const userRequests = this.requests.get(ip) || [];
+    
+    // Remove old requests
+    const recentRequests = userRequests.filter(time => now - time < this.WINDOW_MS);
+    
+    if (recentRequests.length >= this.MAX_REQUESTS) {
+      return {
+        success: false,
+        error: 'Rate limit exceeded. Please try again later.'
+      };
+    }
+    
+    recentRequests.push(now);
+    this.requests.set(ip, recentRequests);
+    return { success: true };
+  }
+};
+
+const Cache = {
+  cache: new Map(),
+  CACHE_DURATION: 5 * 60 * 1000, // 5 minutes
+
+  get(key) {
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+    
+    if (Date.now() - cached.timestamp > this.CACHE_DURATION) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    return cached.data;
+  },
+
+  set(key, data) {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+};
+
+// Function to get coordinates for surf spots
+async function getSpotCoordinates(location) {
+  try {
+    // Get coordinates from Firestore
+    const spotDoc = await admin.firestore()
+      .collection('surfSpots')
+      .doc(location)
+      .get();
+    
+    if (spotDoc.exists) {
+      const spotData = spotDoc.data();
+      return {
+        latitude: spotData.latitude,
+        longitude: spotData.longitude
+      };
+    }
+    
+    // Fallback to default location if spot not found
+    const defaultSpot = await admin.firestore()
+      .collection('surfSpots')
+      .doc('venice-beach')
+      .get();
+      
+    if (defaultSpot.exists) {
+      const defaultData = defaultSpot.data();
+      return {
+        latitude: defaultData.latitude,
+        longitude: defaultData.longitude
+      };
+    }
+    
+    throw new Error('No surf spots found in database');
+  } catch (error) {
+    console.error('Error getting spot coordinates:', error);
+    throw error;
+  }
+}
+
+// Main surf report generation function
+async function generateSurfReport(location, surferType, apiKey) {
+  try {
+    console.log('[INFO] Generating surf report:', {
+      location,
+      surferType,
+      timestamp: new Date().toISOString()
+    });
+
+    const coordinates = await getSpotCoordinates(location);
+    const currentHourIndex = new Date().getHours();
+    
+    // Fetch all data in parallel
+    const [marineData, weatherData, buoyData] = await Promise.all([
+      WeatherProcessor.fetchMarineData(coordinates.latitude, coordinates.longitude),
+      WeatherProcessor.fetchWeatherData(coordinates.latitude, coordinates.longitude),
+      SurfReportGenerator.fetchBuoyData(coordinates.latitude, coordinates.longitude)
+    ]);
+    
+    const formattedData = WeatherProcessor.formatWeatherData(
+      marineData,
+      weatherData,
+      buoyData,
+      currentHourIndex
+    );
+    
+    const report = await SurfReportGenerator.generateAIReport(location, formattedData, apiKey);
+    
+    // Ensure go_today is always included with a valid value
+    const validGoToday = ['yes', 'no', 'maybe'].includes(report.go_today?.toLowerCase()) 
+      ? report.go_today.toLowerCase() 
+      : 'maybe';
+
+    return {
+      ...report,
+      location: formatLocation(location),
+      date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+      weatherData: formattedData,
+      go_today: validGoToday
+    };
+  } catch (error) {
+    console.error('[ERROR] API Error in generateSurfReport:', {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
     throw error;
   }
 }
@@ -282,43 +932,43 @@ exports.sendSurfReports = onSchedule({
         // Process each surf location for the user
         for (const location of surfLocations) {
           console.log(`[PROCESSING_USER] Generating report for ${user.email} - Location: ${location}`);
-          const surfReport = await generateSurfReport(location, openAiApiKey);
+          const surfReport = await generateSurfReport(location, user.surferType, openAiApiKey);
+
+          const formattedLocation = formatLocation(surfReport.location);
+          const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
+
+          console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
 
           // Format template data
           const templateData = {
-            subject: location + " Surf Report - " + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-            email_header: "🌊 Daily Surf Report",
-            forecast_title: `${location} Forecast`,
-            preview_text: surfReport.full_report.substring(0, 100),
-            forecast_time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-            main_alert: surfReport.main_alert,
-            best_time_to_surf: surfReport.best_time,
-            subheadline: surfReport.wave_size,
-            conditions_summary: surfReport.full_report,
-            wave_size: surfReport.wave_size,
-            wind: surfReport.wind,
+            location: formattedLocation,
+            date: surfReport.date,
+            vibe_description: surfReport.vibe,
+            best_time: surfReport.best_time,
+            second_best_time: surfReport.second_best,
+            gear: surfReport.gear_recommendation,
             water_temp: surfReport.water_temp,
-            vibe: surfReport.vibe,
-            morning_time: "5:00–8:00am",
-            morning_conditions: surfReport.morning_conditions,
-            afternoon_time: "4:00–6:00pm",
-            afternoon_conditions: surfReport.afternoon_conditions,
-            tip1: surfReport.tips[0],
-            tip2: surfReport.tips[1],
-            tip3: surfReport.tips[2],
-            Sender_Name: "KookCast",
-            Sender_Address: "123 Surf Lane",
-            Sender_City: "San Francisco",
-            Sender_State: "CA",
-            Sender_Zip: "94121",
-            unsubscribe: "https://kook-cast.com/unsubscribe",
-            unsubscribe_preferences: "https://kook-cast.com/preferences"
+            wind_description: surfReport.wind_summary,
+            go_today: surfReport.go_today,
+            go_reasoning: surfReport.swell_summary,
+            weather_summary: surfReport.weather_summary,
+            air_temp: surfReport.air_temp,
+            clouds: surfReport.clouds,
+            rain_chance: surfReport.rain_chance,
+            tide_summary: surfReport.tide_summary,
+            skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
+            daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
+            yes_url: CONFIG.CHECKIN_URLS.yes,
+            no_url: CONFIG.CHECKIN_URLS.no,
+            skipped_url: CONFIG.CHECKIN_URLS.skipped,
+            subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`
           };
 
           // Send email
           await sgMail.send({
             to: user.email,
             from: fromEmail,
+            subject: subject,
             templateId: templateId,
             dynamicTemplateData: templateData
           });
@@ -483,49 +1133,6 @@ app.post('/sync-email-verification', async (req, res) => {
   }
 });
 
-// Function to send signup notification email
-async function sendSignupNotification(userEmail) {
-  try {
-    // Get total number of users
-    const usersSnapshot = await admin.firestore().collection('users').get();
-    const totalUsers = usersSnapshot.size;
-
-    const msg = {
-      to: 'griffin@kook-cast.com',
-      from: 'noreply@kook-cast.com',
-      subject: `${userEmail} signed up`,
-      text: `New user signup!\n\nEmail: ${userEmail}\nTotal users: ${totalUsers}`,
-      html: `
-        <h2>New User Signup</h2>
-        <p><strong>Email:</strong> ${userEmail}</p>
-        <p><strong>Total Users:</strong> ${totalUsers}</p>
-      `
-    };
-
-    await sgMail.send(msg);
-    console.log('Signup notification email sent successfully');
-  } catch (error) {
-    console.error('Error sending signup notification email:', error);
-    throw error;
-  }
-}
-
-// Add to exports
-exports.sendSignupNotification = functions.https.onCall(async (data, context) => {
-  try {
-    const { email } = data;
-    if (!email) {
-      throw new Error('Email is required');
-    }
-
-    await sendSignupNotification(email);
-    return { success: true };
-  } catch (error) {
-    console.error('Error in sendSignupNotification:', error);
-    throw new functions.https.HttpsError('internal', error.message);
-  }
-});
-
 // Test function to send emails immediately
 exports.testSendEmails = onRequest({
   cors: true,
@@ -544,24 +1151,11 @@ exports.testSendEmails = onRequest({
       message: 'Email distribution started. Check Firebase logs for progress.'
     });
 
-    // Get all users with emailVerified = true
-    const usersSnapshot = await admin.firestore()
-      .collection('users')
-      .where('emailVerified', '==', true)
-      .get();
-    
-    // Log all verified users for debugging
-    console.log('[TEST_SEND_EMAILS] Verified users:', usersSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        email: data.email,
-        surfLocations: data.surfLocations,
-        emailVerified: data.emailVerified,
-        emailVerifiedAt: data.emailVerifiedAt
-      };
-    }));
-    
-    console.log(`[TEST_SEND_EMAILS] Found ${usersSnapshot.size} verified users`);
+    const { email, location, firstName, surferType } = req.body;
+
+    if (!email || !location) {
+      throw new Error('Email and location are required');
+    }
 
     const sendGridApiKey = sendgridApiKey.value();
     const fromEmail = sendgridFromEmail.value();
@@ -577,123 +1171,97 @@ exports.testSendEmails = onRequest({
 
     sgMail.setApiKey(sendGridApiKey);
 
-    // Process each user
-    let successCount = 0;
-    let errorCount = 0;
-    let processedEmails = [];
-    
-    for (const userDoc of usersSnapshot.docs) {
-      const user = userDoc.data();
+    try {
+      console.log(`[TEST_SEND_EMAILS] Generating report for ${email} - Location: ${location}`);
+      const surfReport = await generateSurfReport(location, surferType, openAiApiKey);
+
+      // Helper function to get condition emoji based on go_today decision
+      const getConditionEmoji = (goToday) => {
+        if (!goToday) return '🤔'; // Default emoji for undefined/missing value
+        switch (goToday.toLowerCase()) {
+          case 'yes':
+            return '🟢';
+          case 'no':
+            return '🔴';
+          case 'maybe':
+            return '🟡';
+          default:
+            return '🤔';
+        }
+      };
+
+      // Format date as "Month Day"
+      const formatDate = (date) => {
+        return new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+      };
+
+      const formattedLocation = formatLocation(surfReport.location);
+      const formattedDate = formatDate(surfReport.date);
+      const conditionEmoji = getConditionEmoji(surfReport.go_today);
+      const subject = `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`;
+
+      console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
+
+      // Format template data
+      const templateData = {
+        location: formattedLocation,
+        date: formattedDate,
+        vibe_description: surfReport.vibe,
+        best_time: surfReport.best_time,
+        second_best_time: surfReport.second_best,
+        gear: surfReport.gear_recommendation,
+        water_temp: surfReport.water_temp,
+        wind_description: surfReport.wind_summary,
+        go_today: surfReport.go_today,
+        go_reasoning: surfReport.swell_summary,
+        weather_summary: surfReport.weather_summary,
+        air_temp: surfReport.air_temp,
+        clouds: surfReport.clouds,
+        rain_chance: surfReport.rain_chance,
+        tide_summary: surfReport.tide_summary,
+        skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
+        daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
+        yes_url: CONFIG.CHECKIN_URLS.yes,
+        no_url: CONFIG.CHECKIN_URLS.no,
+        skipped_url: CONFIG.CHECKIN_URLS.skipped,
+        subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`
+      };
+
+      // Send email
+      await sgMail.send({
+        to: email,
+        from: fromEmail,
+        subject: subject,
+        templateId: templateId,
+        dynamicTemplateData: templateData
+      });
+
+      // Log successful email send
+      await admin.firestore().collection('emailLogs').add({
+        type: 'surf_report',
+        timestamp: new Date().toISOString(),
+        email: email,
+        location: location,
+        status: 'success',
+        source: 'test_send'
+      });
+
+      console.log(`[TEST_SEND_EMAILS] Successfully sent report to ${email} for location ${location}`);
+    } catch (error) {
+      console.error(`[TEST_SEND_EMAILS] Failed to process email ${email}:`, error);
       
-      // Get surf locations
-      const surfLocations = user.surfLocations || [];
-      
-      console.log(`[TEST_SEND_EMAILS] Processing user ${user.email}:`, {
-        hasLocations: surfLocations.length > 0,
-        locationCount: surfLocations.length,
-        locations: surfLocations
+      // Log failed email attempt
+      await admin.firestore().collection('emailLogs').add({
+        type: 'surf_report',
+        timestamp: new Date().toISOString(),
+        email: email,
+        status: 'error',
+        error: error.message,
+        source: 'test_send'
       });
       
-      if (surfLocations.length === 0) {
-        console.log(`[TEST_SEND_EMAILS] Skipping user ${user.email} - no surf locations set`);
-        continue;
-      }
-
-      try {
-        // Process each surf location for the user
-        for (const location of surfLocations) {
-          console.log(`[TEST_SEND_EMAILS] Generating report for ${user.email} - Location: ${location}`);
-          const surfReport = await generateSurfReport(location, openAiApiKey);
-
-          // Format template data
-          const templateData = {
-            subject: location + " Surf Report - " + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-            email_header: "🌊 Daily Surf Report",
-            forecast_title: `${location} Forecast`,
-            preview_text: surfReport.full_report.substring(0, 100),
-            forecast_time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-            main_alert: surfReport.main_alert,
-            best_time_to_surf: surfReport.best_time,
-            subheadline: surfReport.wave_size,
-            conditions_summary: surfReport.full_report,
-            wave_size: surfReport.wave_size,
-            wind: surfReport.wind,
-            water_temp: surfReport.water_temp,
-            vibe: surfReport.vibe,
-            morning_time: "5:00–8:00am",
-            morning_conditions: surfReport.morning_conditions,
-            afternoon_time: "4:00–6:00pm",
-            afternoon_conditions: surfReport.afternoon_conditions,
-            tip1: surfReport.tips[0],
-            tip2: surfReport.tips[1],
-            tip3: surfReport.tips[2],
-            Sender_Name: "KookCast",
-            Sender_Address: "123 Surf Lane",
-            Sender_City: "San Francisco",
-            Sender_State: "CA",
-            Sender_Zip: "94121",
-            unsubscribe: "https://kook-cast.com/unsubscribe",
-            unsubscribe_preferences: "https://kook-cast.com/preferences"
-          };
-
-          // Send email
-          await sgMail.send({
-            to: user.email,
-            from: fromEmail,
-            templateId: templateId,
-            dynamicTemplateData: templateData
-          });
-
-          // Log successful email send
-          await admin.firestore().collection('emailLogs').add({
-            type: 'surf_report',
-            timestamp: new Date().toISOString(),
-            email: user.email,
-            location: location,
-            status: 'success',
-            source: 'test_send'
-          });
-
-          console.log(`[TEST_SEND_EMAILS] Successfully sent report to ${user.email} for location ${location}`);
-          processedEmails.push(user.email);
-        }
-        successCount++;
-      } catch (error) {
-        console.error(`[TEST_SEND_EMAILS] Failed to process user ${user.email}:`, error);
-        
-        // Log failed email attempt
-        await admin.firestore().collection('emailLogs').add({
-          type: 'surf_report',
-          timestamp: new Date().toISOString(),
-          email: user.email,
-          status: 'error',
-          error: error.message,
-          source: 'test_send'
-        });
-        
-        errorCount++;
-      }
+      throw error;
     }
-
-    console.log('[TEST_SEND_EMAILS] Complete', {
-      total_users: usersSnapshot.size,
-      success_count: successCount,
-      error_count: errorCount,
-      processed_emails: processedEmails,
-      timestamp: new Date().toISOString()
-    });
-
-    // Log summary to Firestore
-    await admin.firestore().collection('emailLogs').add({
-      type: 'test_send_summary',
-      timestamp: new Date().toISOString(),
-      stats: {
-        total_users: usersSnapshot.size,
-        success_count: successCount,
-        error_count: errorCount,
-        processed_emails: processedEmails
-      }
-    });
 
   } catch (error) {
     console.error('[TEST_SEND_EMAILS] Error:', error);
@@ -723,4 +1291,11 @@ exports.api = onRequest({
   minInstances: 0,
   secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
   invoker: "public"
-}, app); 
+}, app);
+
+// Export the functions
+module.exports = {
+  ...module.exports,
+  generateSurfReport,
+  formatLocation
+}; 
