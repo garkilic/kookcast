@@ -126,7 +126,12 @@ app.post('/send', async (req, res) => {
         console.log(`[AI_REPORT] Successfully generated report for ${req.body.location}`);
         
         const formattedLocation = formatLocation(surfReport.location);
-        const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
+        const subject = `Go surf at ${surfReport.prime_time} at ${formattedLocation}`;
+
+        // Determine condition emoji based on skill match percentage
+        const skillMatch = parseInt(surfReport.skill_match.replace('%', ''));
+        const conditionEmoji = skillMatch >= 75 ? '🟢' : 
+                             skillMatch >= 50 ? '🟡' : '🔴';
 
         console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
 
@@ -164,56 +169,75 @@ app.post('/send', async (req, res) => {
                 using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
                 You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
                 
+                Consider the user's surfboards and recent surf sessions when making recommendations:
+                ${userContext}
+                
                 Generate a surf report for ${formattedLocation} on ${formattedDate}. 
                 Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
-                The go_today field MUST be either 'yes', 'no', or 'maybe' - no other values are allowed.
                 
-                For best_time and second_best_time, analyze the provided tide, wind, and swell data to determine:
-                - The optimal time window when conditions align best for surfing
-                - A secondary time window as a backup option
-                These times MUST be based on the actual forecast data provided, considering:
+                For skill matching, consider:
+                - The user's surf type (${req.body.surferType})
+                - Current wave conditions
+                - Wind conditions
                 - Tide conditions
-                - Wind speed and direction
-                - Wave height and period
-                - Swell direction
-                - Weather conditions
+                - Overall difficulty level
                 
-                Format time ranges exactly as "X:XX AM/PM - Y:YY AM/PM" (e.g. "6:30 AM - 9:00 AM")
+                For board recommendations, choose from these available boards:
+                ${req.body.userData?.userBoards || 'No boards available'}
                 
                 For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
-                - vibe_description: Describe the overall surf conditions and atmosphere in a warm, encouraging way
-                - best_time: The optimal time window for surfing, explaining why it's the best time
-                - second_best_time: The secondary time window for surfing, explaining why it's a good alternative
-                - gear: Suggest appropriate board and wetsuit based on conditions, explaining your recommendation
-                - water_temp: Describe the water temperature conditions in a way that helps prepare the surfer
-                - wind_description: Detail the wind speed, direction, and how it affects the surf, explaining what to expect
-                - go_today: Whether to surf today (yes/no/maybe), with a brief explanation of your recommendation
-                - go_reasoning: Explain the swell conditions, size, period, and direction in a way that helps the surfer understand
-                - weather_summary: Describe the overall weather conditions in an encouraging, helpful way
-                - air_temp: Describe the air temperature conditions to help with preparation
-                - clouds: Describe the cloud cover conditions and how they affect the session
-                - rain_chance: Describe the precipitation probability and its impact on the session
-                - tide_summary: Explain the tide movement and its impact on the break in a way that helps the surfer time their session
-                - skill_focus: Suggest a specific skill to focus on based on conditions, explaining why it's a good opportunity
-                - daily_challenge: Provide a specific challenge to try based on conditions, making it fun and achievable
+                - spot_name: The name of the surf spot
+                - match_summary: One sentence explaining why these conditions match the surfer's skill level and preferences
+                - match_conditions: One sentence about the overall conditions matching their style
+                - wave_height: Format as "X-Yft • Brief description" (e.g. "4-5ft • Perfect for you")
+                - conditions: Brief description of wave quality (e.g. "✨ Clean & Glassy")
+                - skill_match: Format as "XX% Compatible" - calculate based on how well conditions match their surf type
+                - best_board: Choose from their available boards, format as "X'Y\" BoardType" (e.g. "7'2\" Funboard")
+                - air_temp: Format as "XX°F (XX°C)"
+                - clouds: Brief description of cloud cover
+                - rain_chance: Format as "X%"
+                - wind_description: Brief description of wind conditions
+                - water_temp: Format as "XX°F (XX°C)"
+                - gear: Brief wetsuit recommendation
+                - prime_time: Format as "X:XX–X:XXam/pm"
+                - prime_notes: Brief note about why this time is good
+                - backup_time: Format as "X:XX–X:XXam/pm"
+                - backup_notes: Brief note about why this time is good
+                - tip1: Specific tip based on conditions and skill level
+                - tip2: Specific tip based on conditions and skill level
+                - tip3: Specific tip based on conditions and skill level
+                - daily_challenge: One specific, achievable challenge
+                - skill_focus: One specific skill to focus on
+                
+                Keep all descriptions brief and to the point. Use imperial measurements:
+                - Temperature in Fahrenheit (°F)
+                - Wind speed in MPH
+                - Wave height in feet (ft)
                 
                 Format your response as a JSON object with the following structure:
                 {
-                  "vibe": "warm, encouraging description based on all conditions",
-                  "best_time": "X:XX AM/PM - Y:YY AM/PM based on forecast",
-                  "second_best": "X:XX AM/PM - Y:YY AM/PM based on forecast",
-                  "gear_recommendation": "personalized suggestion based on conditions",
-                  "water_temp": "helpful description based on water temperature",
-                  "wind_summary": "detailed description based on wind data",
-                  "go_today": "yes/no/maybe",
-                  "swell_summary": "clear explanation based on swell data",
-                  "weather_summary": "encouraging description based on weather data",
-                  "air_temp": "preparatory description based on air temperature",
-                  "clouds": "helpful description based on cloud cover",
-                  "rain_chance": "clear description based on precipitation",
-                  "tide_summary": "helpful explanation based on tide data",
-                  "skill_focus": "personalized suggestion based on conditions",
-                  "daily_challenge": "fun, achievable challenge based on conditions"
+                  "spot_name": "string",
+                  "match_summary": "string",
+                  "match_conditions": "string",
+                  "wave_height": "string",
+                  "conditions": "string",
+                  "skill_match": "string",
+                  "best_board": "string",
+                  "air_temp": "string",
+                  "clouds": "string",
+                  "rain_chance": "string",
+                  "wind_description": "string",
+                  "water_temp": "string",
+                  "gear": "string",
+                  "prime_time": "string",
+                  "prime_notes": "string",
+                  "backup_time": "string",
+                  "backup_notes": "string",
+                  "tip1": "string",
+                  "tip2": "string",
+                  "tip3": "string",
+                  "daily_challenge": "string",
+                  "skill_focus": "string"
                 }`
               },
               {
@@ -228,45 +252,58 @@ app.post('/send', async (req, res) => {
 
           // Format template data
           const templateData = {
-            location: formattedLocation,
-            date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
-            vibe_description: surfReport.vibe,
-            best_time: surfReport.best_time,
-            second_best_time: surfReport.second_best,
-            gear: surfReport.gear_recommendation,
-            water_temp: weatherDescriptions.water_temp,
-            wind_description: surfReport.wind_summary,
-            go_today: surfReport.go_today,
-            go_reasoning: surfReport.swell_summary,
-            weather_summary: weatherDescriptions.weather_summary,
-            air_temp: weatherDescriptions.air_temp,
-            clouds: weatherDescriptions.clouds,
-            rain_chance: weatherDescriptions.rain_chance,
-            tide_summary: weatherDescriptions.tide_summary,
-            skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
-            daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
-            yes_url: CONFIG.CHECKIN_URLS.yes,
-            no_url: CONFIG.CHECKIN_URLS.no,
-            skipped_url: CONFIG.CHECKIN_URLS.skipped,
-            subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`,
-            user_boards: surfReport.userData.boards,
-            recent_diary_entries: surfReport.userData.recentDiaryEntries
+            spot_name: formattedLocation,
+            match_summary: surfReport.match_summary,
+            match_conditions: surfReport.match_conditions,
+            wave_height: surfReport.wave_height,
+            conditions: surfReport.conditions,
+            skill_match: surfReport.skill_match,
+            best_board: surfReport.best_board,
+            air_temp: surfReport.air_temp,
+            clouds: surfReport.clouds,
+            rain_chance: surfReport.rain_chance,
+            wind_description: surfReport.wind_description,
+            water_temp: surfReport.water_temp,
+            gear: surfReport.gear,
+            prime_time: surfReport.prime_time,
+            prime_notes: surfReport.prime_notes,
+            backup_time: surfReport.backup_time,
+            backup_notes: surfReport.backup_notes,
+            tip1: surfReport.tip1,
+            tip2: surfReport.tip2,
+            tip3: surfReport.tip3,
+            daily_challenge: surfReport.daily_challenge,
+            skill_focus: surfReport.skill_focus,
+            diary_url: "https://kook-cast.com/diary/new-session",
+            subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
           };
 
-          msg = {
+          // Send email
+          await sgMail.send({
             to: req.body.to,
             from: fromEmail,
-            subject: subject,
+            subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
             templateId: templateId,
             dynamicTemplateData: templateData
-          };
+          });
+
+          console.log(`[SUCCESS] Sent report to ${req.body.to} for location ${req.body.location}`);
+          
+          res.json({
+            status: 'success',
+            message: 'Email sent successfully'
+          });
         } catch (error) {
-          console.error('Error generating weather descriptions:', error);
-          throw new Error('Failed to generate weather descriptions');
+          console.error(`[ERROR] Error processing user ${req.body.to}:`, error);
+          res.status(500).json({
+            status: 'error',
+            message: 'Failed to send email',
+            details: error.response ? error.response.body : error.message
+          });
         }
       } catch (error) {
-        console.error(`[AI_ERROR] Failed to generate report for ${req.body.location}:`, error);
-        throw new Error('Failed to generate surf report');
+        console.error('Error generating weather descriptions:', error);
+        throw new Error('Failed to generate weather descriptions');
       }
     } else {
       msg = {
@@ -565,54 +602,70 @@ ${userData.recentDiaryEntries.map(entry =>
           
           Generate a surf report for ${formattedLocation} on ${formattedDate}. 
           Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
-          The go_today field MUST be either 'yes', 'no', or 'maybe' - no other values are allowed.
           
-          For best_time and second_best_time, analyze the provided tide, wind, and swell data to determine:
-          - The optimal time window when conditions align best for surfing
-          - A secondary time window as a backup option
-          These times MUST be based on the actual forecast data provided, considering:
+          For skill matching, consider:
+          - The user's surf type (${userData.surferType})
+          - Current wave conditions
+          - Wind conditions
           - Tide conditions
-          - Wind speed and direction
-          - Wave height and period
-          - Swell direction
-          - Weather conditions
+          - Overall difficulty level
           
-          Format time ranges exactly as "X:XX AM/PM - Y:YY AM/PM" (e.g. "6:30 AM - 9:00 AM")
+          For board recommendations, choose from these available boards:
+          ${userData?.userBoards || 'No boards available'}
           
           For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
-          - vibe_description: Describe the overall surf conditions and atmosphere in a warm, encouraging way
-          - best_time: The optimal time window for surfing, explaining why it's the best time
-          - second_best_time: The secondary time window for surfing, explaining why it's a good alternative
-          - gear: Suggest appropriate board and wetsuit based on conditions, explaining your recommendation
-          - water_temp: Describe the water temperature conditions in a way that helps prepare the surfer
-          - wind_description: Detail the wind speed, direction, and how it affects the surf, explaining what to expect
-          - go_today: Whether to surf today (yes/no/maybe), with a brief explanation of your recommendation
-          - go_reasoning: Explain the swell conditions, size, period, and direction in a way that helps the surfer understand
-          - weather_summary: Describe the overall weather conditions in an encouraging, helpful way
-          - air_temp: Describe the air temperature conditions to help with preparation
-          - clouds: Describe the cloud cover conditions and how they affect the session
-          - rain_chance: Describe the precipitation probability and its impact on the session
-          - tide_summary: Explain the tide movement and its impact on the break in a way that helps the surfer time their session
-          - skill_focus: Suggest a specific skill to focus on based on conditions, explaining why it's a good opportunity
-          - daily_challenge: Provide a specific challenge to try based on conditions, making it fun and achievable
+          - spot_name: The name of the surf spot
+          - match_summary: One sentence explaining why these conditions match the surfer's skill level and preferences
+          - match_conditions: One sentence about the overall conditions matching their style
+          - wave_height: Format as "X-Yft • Brief description" (e.g. "4-5ft • Perfect for you")
+          - conditions: Brief description of wave quality (e.g. "✨ Clean & Glassy")
+          - skill_match: Format as "XX% Compatible" - calculate based on how well conditions match their surf type
+          - best_board: Choose from their available boards, format as "X'Y\" BoardType" (e.g. "7'2\" Funboard")
+          - air_temp: Format as "XX°F (XX°C)"
+          - clouds: Brief description of cloud cover
+          - rain_chance: Format as "X%"
+          - wind_description: Brief description of wind conditions
+          - water_temp: Format as "XX°F (XX°C)"
+          - gear: Brief wetsuit recommendation
+          - prime_time: Format as "X:XX–X:XXam/pm"
+          - prime_notes: Brief note about why this time is good
+          - backup_time: Format as "X:XX–X:XXam/pm"
+          - backup_notes: Brief note about why this time is good
+          - tip1: Specific tip based on conditions and skill level
+          - tip2: Specific tip based on conditions and skill level
+          - tip3: Specific tip based on conditions and skill level
+          - daily_challenge: One specific, achievable challenge
+          - skill_focus: One specific skill to focus on
+          
+          Keep all descriptions brief and to the point. Use imperial measurements:
+          - Temperature in Fahrenheit (°F)
+          - Wind speed in MPH
+          - Wave height in feet (ft)
           
           Format your response as a JSON object with the following structure:
           {
-            "vibe": "warm, encouraging description based on all conditions",
-            "best_time": "X:XX AM/PM - Y:YY AM/PM based on forecast",
-            "second_best": "X:XX AM/PM - Y:YY AM/PM based on forecast",
-            "gear_recommendation": "personalized suggestion based on conditions",
-            "water_temp": "helpful description based on water temperature",
-            "wind_summary": "detailed description based on wind data",
-            "go_today": "yes/no/maybe",
-            "swell_summary": "clear explanation based on swell data",
-            "weather_summary": "encouraging description based on weather data",
-            "air_temp": "preparatory description based on air temperature",
-            "clouds": "helpful description based on cloud cover",
-            "rain_chance": "clear description based on precipitation",
-            "tide_summary": "helpful explanation based on tide data",
-            "skill_focus": "personalized suggestion based on conditions",
-            "daily_challenge": "fun, achievable challenge based on conditions"
+            "spot_name": "string",
+            "match_summary": "string",
+            "match_conditions": "string",
+            "wave_height": "string",
+            "conditions": "string",
+            "skill_match": "string",
+            "best_board": "string",
+            "air_temp": "string",
+            "clouds": "string",
+            "rain_chance": "string",
+            "wind_description": "string",
+            "water_temp": "string",
+            "gear": "string",
+            "prime_time": "string",
+            "prime_notes": "string",
+            "backup_time": "string",
+            "backup_notes": "string",
+            "tip1": "string",
+            "tip2": "string",
+            "tip3": "string",
+            "daily_challenge": "string",
+            "skill_focus": "string"
           }`
         },
         {
@@ -998,46 +1051,173 @@ exports.sendSurfReports = onSchedule({
           });
 
           const formattedLocation = formatLocation(surfReport.location);
-          const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
+          const subject = `Go surf at ${surfReport.prime_time} at ${formattedLocation}`;
+
+          // Determine condition emoji based on skill match percentage
+          const skillMatch = parseInt(surfReport.skill_match.replace('%', ''));
+          const conditionEmoji = skillMatch >= 75 ? '🟢' : 
+                               skillMatch >= 50 ? '🟡' : '🔴';
 
           console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
 
-          // Format template data
-          const templateData = {
-            location: formattedLocation,
-            date: surfReport.date,
-            vibe_description: surfReport.vibe,
-            best_time: surfReport.best_time,
-            second_best_time: surfReport.second_best,
-            gear: surfReport.gear_recommendation,
-            water_temp: surfReport.water_temp,
-            wind_description: surfReport.wind_summary,
-            go_today: surfReport.go_today,
-            go_reasoning: surfReport.swell_summary,
-            weather_summary: surfReport.weather_summary,
-            air_temp: surfReport.air_temp,
-            clouds: surfReport.clouds,
-            rain_chance: surfReport.rain_chance,
-            tide_summary: surfReport.tide_summary,
-            skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
-            daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
-            yes_url: CONFIG.CHECKIN_URLS.yes,
-            no_url: CONFIG.CHECKIN_URLS.no,
-            skipped_url: CONFIG.CHECKIN_URLS.skipped,
-            subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`
+          // Create weather context for AI interpretation
+          const weatherContext = {
+            current: {
+              temperature: Math.round((surfReport.weatherData.current.temperature * 9/5) + 32),
+              windSpeed: surfReport.weatherData.current.windSpeed,
+              windDirection: surfReport.weatherData.current.windDirection,
+              waterTemperature: surfReport.weatherData.current.buoyData?.waterTemperature ? 
+                Math.round((surfReport.weatherData.current.buoyData.waterTemperature * 9/5) + 32) : null,
+              waveHeight: surfReport.weatherData.current.buoyData?.waveHeight,
+              swellPeriod: surfReport.weatherData.current.buoyData?.swellPeriod,
+              tide: surfReport.weatherData.current.buoyData?.tide,
+              cloudCover: surfReport.weatherData.current.cloudCover,
+              precipitation: surfReport.weatherData.current.precipitation
+            },
+            today: {
+              maxTemp: Math.round((surfReport.weatherData.today.maxTemp * 9/5) + 32),
+              minTemp: Math.round((surfReport.weatherData.today.minTemp * 9/5) + 32),
+              maxWindSpeed: surfReport.weatherData.today.maxWindSpeed
+            }
           };
 
-          // Send email
-          await sgMail.send({
-            to: user.email,
-            from: fromEmail,
-            subject: subject,
-            templateId: templateId,
-            dynamicTemplateData: templateData
-          });
+          try {
+            // Generate descriptive text using OpenAI
+            const openai = new OpenAI({ apiKey: openAiApiKey });
+            const completion = await openai.chat.completions.create({
+              model: "gpt-4-turbo-preview",
+              messages: [
+                {
+                  role: "system",
+                  content: `You are an experienced surf coach with decades of experience teaching surfers of all levels. 
+                  Your tone is warm, encouraging, and deeply knowledgeable. You write as if you're personally guiding each surfer, 
+                  using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
+                  You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
+                  
+                  Consider the user's surfboards and recent surf sessions when making recommendations:
+                  ${userContext}
+                  
+                  Generate a surf report for ${formattedLocation} on ${formattedDate}. 
+                  Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
+                  
+                  For skill matching, consider:
+                  - The user's surf type (${user.surferType})
+                  - Current wave conditions
+                  - Wind conditions
+                  - Tide conditions
+                  - Overall difficulty level
+                  
+                  For board recommendations, choose from these available boards:
+                  ${user.boardTypes.map(board => boardLabels[board]).join(', ')}
+                  
+                  For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
+                  - spot_name: The name of the surf spot
+                  - match_summary: One sentence explaining why these conditions match the surfer's skill level and preferences
+                  - match_conditions: One sentence about the overall conditions matching their style
+                  - wave_height: Format as "X-Yft • Brief description" (e.g. "4-5ft • Perfect for you")
+                  - conditions: Brief description of wave quality (e.g. "✨ Clean & Glassy")
+                  - skill_match: Format as "XX% Compatible" - calculate based on how well conditions match their surf type
+                  - best_board: Choose from their available boards, format as "X'Y\" BoardType" (e.g. "7'2\" Funboard")
+                  - air_temp: Format as "XX°F (XX°C)"
+                  - clouds: Brief description of cloud cover
+                  - rain_chance: Format as "X%"
+                  - wind_description: Brief description of wind conditions
+                  - water_temp: Format as "XX°F (XX°C)"
+                  - gear: Brief wetsuit recommendation
+                  - prime_time: Format as "X:XX–X:XXam/pm"
+                  - prime_notes: Brief note about why this time is good
+                  - backup_time: Format as "X:XX–X:XXam/pm"
+                  - backup_notes: Brief note about why this time is good
+                  - tip1: Specific tip based on conditions and skill level
+                  - tip2: Specific tip based on conditions and skill level
+                  - tip3: Specific tip based on conditions and skill level
+                  - daily_challenge: One specific, achievable challenge
+                  - skill_focus: One specific skill to focus on
+                  
+                  Keep all descriptions brief and to the point. Use imperial measurements:
+                  - Temperature in Fahrenheit (°F)
+                  - Wind speed in MPH
+                  - Wave height in feet (ft)
+                  
+                  Format your response as a JSON object with the following structure:
+                  {
+                    "spot_name": "string",
+                    "match_summary": "string",
+                    "match_conditions": "string",
+                    "wave_height": "string",
+                    "conditions": "string",
+                    "skill_match": "string",
+                    "best_board": "string",
+                    "air_temp": "string",
+                    "clouds": "string",
+                    "rain_chance": "string",
+                    "wind_description": "string",
+                    "water_temp": "string",
+                    "gear": "string",
+                    "prime_time": "string",
+                    "prime_notes": "string",
+                    "backup_time": "string",
+                    "backup_notes": "string",
+                    "tip1": "string",
+                    "tip2": "string",
+                    "tip3": "string",
+                    "daily_challenge": "string",
+                    "skill_focus": "string"
+                  }`
+                },
+                {
+                  role: "user",
+                  content: `Generate a surf report for ${formattedLocation} on ${formattedDate} using this weather data: ${JSON.stringify(weatherContext)}`
+                }
+              ],
+              response_format: { type: "json_object" }
+            });
 
-          console.log(`[SUCCESS] Sent report to ${user.email} for location ${location}`);
-          processedEmails.push(user.email);
+            const weatherDescriptions = JSON.parse(completion.choices[0].message.content);
+
+            // Format template data
+            const templateData = {
+              spot_name: formattedLocation,
+              match_summary: surfReport.match_summary,
+              match_conditions: surfReport.match_conditions,
+              wave_height: surfReport.wave_height,
+              conditions: surfReport.conditions,
+              skill_match: surfReport.skill_match,
+              best_board: surfReport.best_board,
+              air_temp: surfReport.air_temp,
+              clouds: surfReport.clouds,
+              rain_chance: surfReport.rain_chance,
+              wind_description: surfReport.wind_description,
+              water_temp: surfReport.water_temp,
+              gear: surfReport.gear,
+              prime_time: surfReport.prime_time,
+              prime_notes: surfReport.prime_notes,
+              backup_time: surfReport.backup_time,
+              backup_notes: surfReport.backup_notes,
+              tip1: surfReport.tip1,
+              tip2: surfReport.tip2,
+              tip3: surfReport.tip3,
+              daily_challenge: surfReport.daily_challenge,
+              skill_focus: surfReport.skill_focus,
+              diary_url: "https://kook-cast.com/diary/new-session",
+              subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
+            };
+
+            // Send email
+            await sgMail.send({
+              to: user.email,
+              from: fromEmail,
+              subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
+              templateId: templateId,
+              dynamicTemplateData: templateData
+            });
+
+            console.log(`[SUCCESS] Sent report to ${user.email} for location ${location}`);
+            processedEmails.push(user.email);
+          } catch (error) {
+            console.error(`[ERROR] Error processing user ${user.email}:`, error);
+            errorCount++;
+          }
         }
         successCount++;
       } catch (error) {
@@ -1219,6 +1399,15 @@ exports.testSendEmails = onRequest({
       .limit(1)
       .get();
 
+    console.log('[TEST_SEND_EMAILS] User snapshot:', {
+      empty: userSnapshot.empty,
+      size: userSnapshot.size,
+      docs: userSnapshot.docs.map(doc => ({
+        id: doc.id,
+        data: doc.data()
+      }))
+    });
+
     if (userSnapshot.empty) {
       return res.status(404).json({
         status: 'error',
@@ -1229,7 +1418,17 @@ exports.testSendEmails = onRequest({
     const userDoc = userSnapshot.docs[0];
     const user = userDoc.data();
     const userId = userDoc.id;
+
+    console.log('[TEST_SEND_EMAILS] Raw user document:', JSON.stringify(user, null, 2));
+
     const surfLocations = user.surfLocations || [];
+
+    console.log('[TEST_SEND_EMAILS] User data:', {
+      userId,
+      surferType: user.surferType,
+      surfLocations,
+      boardTypes: user.boardTypes
+    });
 
     if (surfLocations.length === 0) {
       return res.status(400).json({
@@ -1280,51 +1479,52 @@ exports.testSendEmails = onRequest({
         softtop: 'Soft Top'
       };
       const formattedBoards = boardTypes.map(board => boardLabels[board]).join(', ') || 'No boards selected';
-
       const surfReport = await generateSurfReport(location, user.surferType, userId, openAiApiKey, {
         recentDiaryEntries: recentEntries,
         userBoards: formattedBoards
       });
 
       const formattedLocation = formatLocation(surfReport.location);
-      const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
+      const subject = `Go surf at ${surfReport.prime_time} at ${formattedLocation}`;
 
-      // Determine condition emoji based on go_today value
-      const conditionEmoji = surfReport.go_today === 'yes' ? '🏄‍♂️' : 
-                           surfReport.go_today === 'no' ? '🌊' : '🤔';
+      // Determine condition emoji based on skill match percentage
+      const skillMatch = parseInt(surfReport.skill_match.replace('%', ''));
+      const conditionEmoji = skillMatch >= 75 ? '🟢' : 
+                           skillMatch >= 50 ? '🟡' : '🔴';
 
       // Format template data
       const templateData = {
-        location: formattedLocation,
-        date: surfReport.date,
-        vibe_description: surfReport.vibe,
-        best_time: surfReport.best_time,
-        second_best_time: surfReport.second_best,
-        gear: surfReport.gear_recommendation,
-        water_temp: surfReport.water_temp,
-        wind_description: surfReport.wind_summary,
-        go_today: surfReport.go_today,
-        go_reasoning: surfReport.swell_summary,
-        weather_summary: surfReport.weather_summary,
+        spot_name: formattedLocation,
+        match_summary: surfReport.match_summary,
+        match_conditions: surfReport.match_conditions,
+        wave_height: surfReport.wave_height,
+        conditions: surfReport.conditions,
+        skill_match: surfReport.skill_match,
+        best_board: surfReport.best_board,
         air_temp: surfReport.air_temp,
         clouds: surfReport.clouds,
         rain_chance: surfReport.rain_chance,
-        tide_summary: surfReport.tide_summary,
-        skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
-        daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
-        yes_url: CONFIG.CHECKIN_URLS.yes,
-        no_url: CONFIG.CHECKIN_URLS.no,
-        skipped_url: CONFIG.CHECKIN_URLS.skipped,
-        subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`,
-        user_boards: surfReport.userData?.userBoards || formattedBoards,
-        recent_diary_entries: surfReport.userData?.recentDiaryEntries || recentEntries
+        wind_description: surfReport.wind_description,
+        water_temp: surfReport.water_temp,
+        gear: surfReport.gear,
+        prime_time: surfReport.prime_time,
+        prime_notes: surfReport.prime_notes,
+        backup_time: surfReport.backup_time,
+        backup_notes: surfReport.backup_notes,
+        tip1: surfReport.tip1,
+        tip2: surfReport.tip2,
+        tip3: surfReport.tip3,
+        daily_challenge: surfReport.daily_challenge,
+        skill_focus: surfReport.skill_focus,
+        diary_url: "https://kook-cast.com/diary/new-session",
+        subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
       };
 
       // Send email
       await sgMail.send({
         to: email,
         from: fromEmail,
-        subject: subject,
+        subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
         templateId: templateId,
         dynamicTemplateData: templateData
       });
@@ -1378,4 +1578,4 @@ module.exports = {
   ...module.exports,
   generateSurfReport,
   formatLocation
-}; 
+};
