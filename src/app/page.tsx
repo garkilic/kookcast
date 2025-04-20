@@ -298,7 +298,7 @@ export default function Home() {
                     </div>
                     <div className="ml-3">
                       <p className="font-semibold text-secondary-900">Ocean Beach Forecast</p>
-                      <p className="text-sm text-secondary-500">Example Preview • 5:00 AM</p>
+                      <p className="text-sm text-secondary-500">5:00 AM</p>
                     </div>
                   </div>
                 </div>
@@ -658,27 +658,31 @@ export default function Home() {
               </div>
               <h3 className="text-2xl font-bold text-secondary-900">Kook+</h3>
               <p className="mt-4 text-secondary-600">Advanced AI personalization</p>
-              <div className="mt-2 text-2xl font-bold text-secondary-900">$5/month</div>
+              <div className="mt-2 text-2xl font-bold text-secondary-900">$10/month</div>
               <ul className="mt-8 space-y-4">
                 <li className="flex items-center">
                   <span className="text-primary-500 mr-2">🎯</span>
-                  <strong>Multi-spot AI recommendations</strong>
+                  <strong>Track up to 5 surf spots</strong>
                 </li>
                 <li className="flex items-center">
                   <span className="text-primary-500 mr-2">🤖</span>
-                  Advanced skill progression tracking
+                  Daily "Spot of the Day" AI recommendations
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">⚡</span>
-                  Custom delivery time & preferences
+                  <span className="text-primary-500 mr-2">🌊</span>
+                  50% of your subscription helps make surfing accessible
                 </li>
                 <li className="flex items-center">
                   <span className="text-primary-500 mr-2">📊</span>
-                  Detailed condition breakdowns
+                  Advanced swell and wind pattern analysis
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">💬</span>
-                  Priority support
+                  <span className="text-primary-500 mr-2">⏰</span>
+                  Perfect timing alerts for your skill level
+                </li>
+                <li className="flex items-center">
+                  <span className="text-primary-500 mr-2">✨</span>
+                  Help make surfing more accessible
                 </li>
               </ul>
               <button 
