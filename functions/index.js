@@ -543,9 +543,9 @@ const SurfReportGenerator = {
     
     // Format user's boards and diary entries for context
     const userContext = userData ? `
-User's surfboards: ${userData.userBoards || 'No boards selected'}
+User's surfboards: ${userData.userBoards}
 Recent surf sessions:
-${(userData.recentDiaryEntries || []).map(entry => 
+${userData.recentDiaryEntries.map(entry => 
   `- ${entry.date}: ${entry.rating} (${entry.hadFun ? 'had fun' : 'did not have fun'})${entry.description ? ` - ${entry.description}` : ''}`
 ).join('\n')}
 ` : '';
@@ -837,62 +837,47 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
       timestamp: new Date().toISOString()
     });
 
-    // Initialize userData if not provided
+    // Get user's data from Firestore if not provided
     if (!userData) {
-      userData = {
-        userBoards: 'No boards selected',
-        recentDiaryEntries: []
+      const userDoc = await admin.firestore().collection('users').doc(userId).get();
+      const userData = userDoc.data();
+      
+      // Get user's surfboards
+      const boardTypes = userData?.boardTypes || [];
+      const boardLabels = {
+        shortboard: 'Shortboard',
+        longboard: 'Longboard',
+        fish: 'Fish',
+        hybrid: 'Hybrid',
+        funboard: 'Funboard',
+        gun: 'Gun',
+        softtop: 'Soft Top'
       };
+      const formattedBoards = boardTypes.map(board => boardLabels[board]).join(', ') || 'No boards selected';
 
-      // Only fetch from Firestore if userId is provided
-      if (userId) {
-        try {
-          const userDoc = await admin.firestore().collection('users').doc(userId).get();
-          const userDataFromFirestore = userDoc.data();
-          
-          if (userDataFromFirestore) {
-            // Get user's surfboards
-            const boardTypes = userDataFromFirestore.boardTypes || [];
-            const boardLabels = {
-              shortboard: 'Shortboard',
-              longboard: 'Longboard',
-              fish: 'Fish',
-              hybrid: 'Hybrid',
-              funboard: 'Funboard',
-              gun: 'Gun',
-              softtop: 'Soft Top'
-            };
-            const formattedBoards = boardTypes.map(board => boardLabels[board]).join(', ') || 'No boards selected';
+      // Get user's recent diary entries for context
+      const diaryEntries = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('surfEntries')
+        .orderBy('timestamp', 'desc')
+        .limit(5)
+        .get();
 
-            // Get user's recent diary entries for context
-            const diaryEntries = await admin.firestore()
-              .collection('users')
-              .doc(userId)
-              .collection('surfEntries')
-              .orderBy('timestamp', 'desc')
-              .limit(5)
-              .get();
+      const recentEntries = diaryEntries.docs.map(doc => {
+        const data = doc.data();
+        return {
+          date: new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+          rating: data.rating,
+          hadFun: data.hadFun,
+          description: data.description
+        };
+      });
 
-            const recentEntries = diaryEntries.docs.map(doc => {
-              const data = doc.data();
-              return {
-                date: new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
-                rating: data.rating,
-                hadFun: data.hadFun,
-                description: data.description
-              };
-            });
-
-            userData = {
-              userBoards: formattedBoards,
-              recentDiaryEntries: recentEntries
-            };
-          }
-        } catch (error) {
-          console.error('[ERROR] Failed to fetch user data:', error);
-          // Continue with default userData if fetch fails
-        }
-      }
+      userData = {
+        userBoards: formattedBoards,
+        recentDiaryEntries: recentEntries
+      };
     }
 
     const coordinates = await getSpotCoordinates(location);
@@ -1016,10 +1001,6 @@ exports.sendSurfReports = onSchedule({
           const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
 
           console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
-
-          // Determine condition emoji based on go_today value
-          const conditionEmoji = surfReport.go_today === 'yes' ? '🟢' : 
-                               surfReport.go_today === 'no' ? '🔴' : '🟡';
 
           // Format template data
           const templateData = {
@@ -1309,8 +1290,8 @@ exports.testSendEmails = onRequest({
       const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
 
       // Determine condition emoji based on go_today value
-      const conditionEmoji = surfReport.go_today === 'yes' ? '🟢' : 
-                           surfReport.go_today === 'no' ? '🔴' : '🟡';
+      const conditionEmoji = surfReport.go_today === 'yes' ? '🏄‍♂️' : 
+                           surfReport.go_today === 'no' ? '🌊' : '🤔';
 
       // Format template data
       const templateData = {
@@ -1368,132 +1349,6 @@ exports.testSendEmails = onRequest({
     res.status(500).json({
       status: 'error',
       message: 'Failed to send test email',
-      error: error.message
-    });
-  }
-});
-
-// Manual trigger endpoint for sendSurfReports
-exports.manualSendSurfReports = onRequest({
-  cors: true,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
-  memory: '256MiB'
-}, async (req, res) => {
-  try {
-    console.log('[MANUAL_TRIGGER] Starting manual surf report distribution');
-    
-    // Get all users with emailVerified = true
-    const usersSnapshot = await admin.firestore()
-      .collection('users')
-      .where('emailVerified', '==', true)
-      .get();
-    
-    console.log(`[MANUAL_TRIGGER] Found ${usersSnapshot.size} verified users`);
-
-    const sendGridApiKey = sendgridApiKey.value();
-    const fromEmail = sendgridFromEmail.value();
-    const templateId = sendgridTemplateId.value();
-    const openAiApiKey = openaiApiKey.value();
-
-    sgMail.setApiKey(sendGridApiKey);
-
-    // Process each user
-    let successCount = 0;
-    let errorCount = 0;
-    let processedEmails = [];
-    
-    for (const userDoc of usersSnapshot.docs) {
-      const user = userDoc.data();
-      const surfLocations = user.surfLocations || [];
-      
-      if (surfLocations.length === 0) {
-        console.log(`[SKIP_USER] User ${user.email} has no surf locations set`);
-        continue;
-      }
-
-      try {
-        // Process each surf location for the user
-        for (const location of surfLocations) {
-          console.log(`[PROCESSING_USER] Generating report for ${user.email} - Location: ${location}`);
-          const surfReport = await generateSurfReport(location, user.surferType, user.uid, openAiApiKey, {
-            userBoards: user.boardTypes,
-            recentDiaryEntries: user.recentDiaryEntries
-          });
-
-          const formattedLocation = formatLocation(surfReport.location);
-          const subject = `Go surf at ${surfReport.best_time} at ${formattedLocation}`;
-
-          // Determine condition emoji based on go_today value
-          const conditionEmoji = surfReport.go_today === 'yes' ? '🟢' : 
-                               surfReport.go_today === 'no' ? '🔴' : '🟡';
-
-          // Format template data
-          const templateData = {
-            location: formattedLocation,
-            date: surfReport.date,
-            vibe_description: surfReport.vibe,
-            best_time: surfReport.best_time,
-            second_best_time: surfReport.second_best,
-            gear: surfReport.gear_recommendation,
-            water_temp: surfReport.water_temp,
-            wind_description: surfReport.wind_summary,
-            go_today: surfReport.go_today,
-            go_reasoning: surfReport.swell_summary,
-            weather_summary: surfReport.weather_summary,
-            air_temp: surfReport.air_temp,
-            clouds: surfReport.clouds,
-            rain_chance: surfReport.rain_chance,
-            tide_summary: surfReport.tide_summary,
-            skill_focus: surfReport.skill_focus || CONFIG.DEFAULT_SKILL_FOCUS,
-            daily_challenge: surfReport.daily_challenge || CONFIG.DEFAULT_DAILY_CHALLENGE,
-            yes_url: CONFIG.CHECKIN_URLS.yes,
-            no_url: CONFIG.CHECKIN_URLS.no,
-            skipped_url: CONFIG.CHECKIN_URLS.skipped,
-            subject: `${conditionEmoji} Go surf at ${surfReport.best_time} at ${formattedLocation}`
-          };
-
-          // Send email
-          await sgMail.send({
-            to: user.email,
-            from: fromEmail,
-            subject: subject,
-            templateId: templateId,
-            dynamicTemplateData: templateData
-          });
-
-          console.log(`[SUCCESS] Sent report to ${user.email} for location ${location}`);
-          processedEmails.push(user.email);
-        }
-        successCount++;
-      } catch (error) {
-        console.error(`[USER_ERROR] Failed to process user ${user.email}:`, error);
-        errorCount++;
-      }
-    }
-
-    console.log('[MANUAL_TRIGGER_COMPLETE]', {
-      total_users: usersSnapshot.size,
-      success_count: successCount,
-      error_count: errorCount,
-      processed_emails: processedEmails,
-      timestamp: new Date().toISOString()
-    });
-
-    res.json({
-      status: 'success',
-      message: 'Surf reports sent successfully',
-      stats: {
-        total_users: usersSnapshot.size,
-        success_count: successCount,
-        error_count: errorCount,
-        processed_emails: processedEmails
-      }
-    });
-  } catch (error) {
-    console.error('[MANUAL_TRIGGER_ERROR]', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to send surf reports',
       error: error.message
     });
   }
