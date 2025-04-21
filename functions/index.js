@@ -156,6 +156,10 @@ app.post('/send', async (req, res) => {
           }
         };
 
+        // Add formatted date
+        const currentDate = new Date();
+        const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+
         try {
           // Generate descriptive text using OpenAI
           const openai = new OpenAI({ apiKey: openAiKey });
@@ -170,7 +174,9 @@ app.post('/send', async (req, res) => {
                 You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
                 
                 Consider the user's surfboards and recent surf sessions when making recommendations:
-                ${userContext}
+                User's surfboards: ${req.body.userData?.userBoards || 'No boards available'}
+                Recent surf sessions:
+                ${req.body.userData?.recentSessions || 'No recent sessions'}
                 
                 Generate a surf report for ${formattedLocation} on ${formattedDate}. 
                 Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
@@ -578,15 +584,6 @@ const SurfReportGenerator = {
     const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
     const formattedLocation = formatLocation(location);
     
-    // Format user's boards and diary entries for context
-    const userContext = userData ? `
-User's surfboards: ${userData.userBoards}
-Recent surf sessions:
-${userData.recentDiaryEntries.map(entry => 
-  `- ${entry.date}: ${entry.rating} (${entry.hadFun ? 'had fun' : 'did not have fun'})${entry.description ? ` - ${entry.description}` : ''}`
-).join('\n')}
-` : '';
-
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview",
       messages: [
@@ -598,13 +595,15 @@ ${userData.recentDiaryEntries.map(entry =>
           You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
           
           Consider the user's surfboards and recent surf sessions when making recommendations:
-          ${userContext}
+          User's surfboards: ${userData?.userBoards || 'No boards available'}
+          Recent surf sessions:
+          ${userData?.recentSessions || 'No recent sessions'}
           
           Generate a surf report for ${formattedLocation} on ${formattedDate}. 
           Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
           
           For skill matching, consider:
-          - The user's surf type (${userData.surferType})
+          - The user's surf type (${userData?.surferType || 'intermediate'})
           - Current wave conditions
           - Wind conditions
           - Tide conditions
@@ -880,6 +879,73 @@ async function getSpotCoordinates(location) {
   }
 }
 
+// Helper function to get user data with defaults
+async function getUserData(userId) {
+  try {
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userData = userDoc.data() || {};
+    
+    // Get user's surfboards with defaults
+    const boardTypes = Array.isArray(userData.boardTypes) ? userData.boardTypes : [];
+    const boardLabels = {
+      shortboard: 'Shortboard',
+      longboard: 'Longboard',
+      fish: 'Fish',
+      hybrid: 'Hybrid',
+      funboard: 'Funboard',
+      gun: 'Gun',
+      softtop: 'Soft Top'
+    };
+    const formattedBoards = boardTypes.length > 0 
+      ? boardTypes.map(board => boardLabels[board] || board).join(', ')
+      : 'No boards selected';
+
+    // Get user's recent diary entries with defaults
+    let recentEntries = [];
+    try {
+      const diaryEntries = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('surfEntries')
+        .orderBy('timestamp', 'desc')
+        .limit(5)
+        .get();
+
+      recentEntries = diaryEntries.docs.map(doc => {
+        const data = doc.data() || {};
+        return {
+          date: data.date ? new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'Unknown date',
+          rating: data.rating || 'decent',
+          hadFun: data.hadFun ?? true,
+          description: data.description || ''
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching diary entries:', error);
+      recentEntries = [];
+    }
+
+    return {
+      userBoards: formattedBoards,
+      recentDiaryEntries: recentEntries,
+      surferType: userData.surferType || 'intermediate',
+      surfLocations: Array.isArray(userData.surfLocations) ? userData.surfLocations : [],
+      recentSessions: recentEntries.map(entry => 
+        `- ${entry.date}: ${entry.rating} (${entry.hadFun ? 'had fun' : 'did not have fun'})${entry.description ? ` - ${entry.description}` : ''}`
+      ).join('\n')
+    };
+  } catch (error) {
+    console.error('Error getting user data:', error);
+    return {
+      userBoards: 'No boards selected',
+      recentDiaryEntries: [],
+      surferType: 'intermediate',
+      surfLocations: [],
+      recentSessions: ''
+    };
+  }
+}
+
 // Main surf report generation function
 async function generateSurfReport(location, surferType, userId, apiKey, userData = null) {
   try {
@@ -986,22 +1052,15 @@ exports.sendSurfReports = onSchedule({
   try {
     console.log('[SCHEDULED_REPORTS] Starting daily surf report distribution');
     
+    // Add formatted date at the beginning
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    
     // Get all users with emailVerified = true
     const usersSnapshot = await admin.firestore()
       .collection('users')
       .where('emailVerified', '==', true)
       .get();
-    
-    // Log all verified users for debugging
-    console.log('[SCHEDULED_REPORTS] Verified users:', usersSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        email: data.email,
-        surfLocations: data.surfLocations,
-        emailVerified: data.emailVerified,
-        emailVerifiedAt: data.emailVerifiedAt
-      };
-    }));
     
     console.log(`[SCHEDULED_REPORTS] Found ${usersSnapshot.size} verified users`);
 
@@ -1009,13 +1068,6 @@ exports.sendSurfReports = onSchedule({
     const fromEmail = sendgridFromEmail.value();
     const templateId = sendgridTemplateId.value();
     const openAiApiKey = openaiApiKey.value();
-
-    // Log SendGrid configuration (without sensitive data)
-    console.log('[SCHEDULED_REPORTS] SendGrid Configuration:', {
-      fromEmail,
-      templateId,
-      hasApiKey: !!sendGridApiKey
-    });
 
     sgMail.setApiKey(sendGridApiKey);
 
@@ -1025,30 +1077,32 @@ exports.sendSurfReports = onSchedule({
     let processedEmails = [];
     
     for (const userDoc of usersSnapshot.docs) {
-      const user = userDoc.data();
+      const user = userDoc.data() || {};
+      const userId = userDoc.id;
       
-      // Get surf locations
-      const surfLocations = user.surfLocations || [];
-      
-      console.log(`[PROCESSING_USER] User ${user.email}:`, {
-        hasLocations: surfLocations.length > 0,
-        locationCount: surfLocations.length,
-        locations: surfLocations
-      });
-      
-      if (surfLocations.length === 0) {
-        console.log(`[SKIP_USER] User ${user.email} has no surf locations set`);
-        continue;
-      }
-
       try {
-        // Process each surf location for the user
-        for (const location of surfLocations) {
+        // Get user data with defaults
+        const userData = await getUserData(userId);
+        
+        // Skip if no surf locations
+        if (!userData.surfLocations || userData.surfLocations.length === 0) {
+          console.log(`[SKIP_USER] User ${user.email} has no surf locations set`);
+          continue;
+        }
+
+        // Process each surf location
+        for (const location of userData.surfLocations) {
+          if (!location) continue; // Skip invalid locations
+          
           console.log(`[PROCESSING_USER] Generating report for ${user.email} - Location: ${location}`);
-          const surfReport = await generateSurfReport(location, user.surferType, user.uid, openAiApiKey, {
-            userBoards: user.boardTypes,
-            recentDiaryEntries: user.recentDiaryEntries
-          });
+          
+          const surfReport = await generateSurfReport(
+            location, 
+            userData.surferType, 
+            userId, 
+            openAiApiKey, 
+            userData
+          );
 
           const formattedLocation = formatLocation(surfReport.location);
           const subject = `Go surf at ${surfReport.prime_time} at ${formattedLocation}`;
@@ -1081,6 +1135,10 @@ exports.sendSurfReports = onSchedule({
             }
           };
 
+          // Add formatted date
+          const currentDate = new Date();
+          const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+
           try {
             // Generate descriptive text using OpenAI
             const openai = new OpenAI({ apiKey: openAiApiKey });
@@ -1095,20 +1153,22 @@ exports.sendSurfReports = onSchedule({
                   You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
                   
                   Consider the user's surfboards and recent surf sessions when making recommendations:
-                  ${userContext}
+                  User's surfboards: ${userData.userBoards}
+                  Recent surf sessions:
+                  ${userData.recentSessions}
                   
                   Generate a surf report for ${formattedLocation} on ${formattedDate}. 
                   Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
                   
                   For skill matching, consider:
-                  - The user's surf type (${user.surferType})
+                  - The user's surf type (${userData.surferType})
                   - Current wave conditions
                   - Wind conditions
                   - Tide conditions
                   - Overall difficulty level
                   
                   For board recommendations, choose from these available boards:
-                  ${user.boardTypes.map(board => boardLabels[board]).join(', ')}
+                  ${userData.userBoards}
                   
                   For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
                   - spot_name: The name of the surf spot
