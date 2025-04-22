@@ -14,6 +14,7 @@ const xml2js = require('xml2js');
 const sendgridApiKey = defineSecret('SENDGRID_API_KEY');
 const sendgridFromEmail = defineSecret('SENDGRID_FROM_EMAIL');
 const sendgridTemplateId = defineSecret('SENDGRID_TEMPLATE_ID');
+const sendgridPremiumTemplateId = defineSecret('SENDGRID_PREMIUM_TEMPLATE_ID');
 const openaiApiKey = defineSecret('OPENAI_API_KEY');
 
 // Initialize Express app
@@ -794,28 +795,52 @@ const Validator = {
 const RateLimiter = {
   requests: new Map(),
   CACHE_DURATION: 5 * 60 * 1000, // 5 minutes
-  MAX_REQUESTS: 10,
+  MAX_REQUESTS: {
+    default: 10, // Default rate limit
+    premium: 30, // Higher rate limit for premium users
+    test: 5, // Lower rate limit for test endpoints
+  },
   WINDOW_MS: 60 * 1000, // 1 minute
 
-  checkRateLimit(ip) {
+  async checkRateLimit(ip, userId = null, endpoint = 'default') {
     const now = Date.now();
-    const userRequests = this.requests.get(ip) || [];
+    const key = userId ? `${userId}:${endpoint}` : `${ip}:${endpoint}`;
+    const userRequests = this.requests.get(key) || [];
     
     // Remove old requests
     const recentRequests = userRequests.filter(time => now - time < this.WINDOW_MS);
     
-    if (recentRequests.length >= this.MAX_REQUESTS) {
+    // Get rate limit based on endpoint
+    const maxRequests = this.MAX_REQUESTS[endpoint] || this.MAX_REQUESTS.default;
+    
+    if (recentRequests.length >= maxRequests) {
       return {
         success: false,
-        error: 'Rate limit exceeded. Please try again later.'
+        error: `Rate limit exceeded. Please try again in ${Math.ceil((this.WINDOW_MS - (now - recentRequests[0])) / 1000)} seconds.`
       };
     }
     
     recentRequests.push(now);
-    this.requests.set(ip, recentRequests);
+    this.requests.set(key, recentRequests);
     return { success: true };
+  },
+
+  // Clean up old requests periodically
+  cleanup() {
+    const now = Date.now();
+    for (const [key, requests] of this.requests.entries()) {
+      const recentRequests = requests.filter(time => now - time < this.WINDOW_MS);
+      if (recentRequests.length === 0) {
+        this.requests.delete(key);
+      } else {
+        this.requests.set(key, recentRequests);
+      }
+    }
   }
 };
+
+// Run cleanup every minute
+setInterval(() => RateLimiter.cleanup(), 60 * 1000);
 
 const Cache = {
   cache: new Map(),
@@ -1046,15 +1071,11 @@ exports.sendSurfReports = onSchedule({
   schedule: '0 5 * * *',
   timeZone: 'America/Los_Angeles',
   retryCount: 3,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey],
   memory: '256MiB'
 }, async (event) => {
   try {
     console.log('[SCHEDULED_REPORTS] Starting daily surf report distribution');
-    
-    // Add formatted date at the beginning
-    const currentDate = new Date();
-    const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
     
     // Get all users with emailVerified = true
     const usersSnapshot = await admin.firestore()
@@ -1067,6 +1088,7 @@ exports.sendSurfReports = onSchedule({
     const sendGridApiKey = sendgridApiKey.value();
     const fromEmail = sendgridFromEmail.value();
     const templateId = sendgridTemplateId.value();
+    const premiumTemplateId = sendgridPremiumTemplateId.value();
     const openAiApiKey = openaiApiKey.value();
 
     sgMail.setApiKey(sendGridApiKey);
@@ -1074,7 +1096,6 @@ exports.sendSurfReports = onSchedule({
     // Process each user
     let successCount = 0;
     let errorCount = 0;
-    let processedEmails = [];
     
     for (const userDoc of usersSnapshot.docs) {
       const user = userDoc.data() || {};
@@ -1090,12 +1111,106 @@ exports.sendSurfReports = onSchedule({
           continue;
         }
 
-        // Process each surf location
-        for (const location of userData.surfLocations) {
-          if (!location) continue; // Skip invalid locations
+        if (user.premium || user.isPremium) {
+          // Premium user flow - get up to 5 spots and find best match
+          console.log(`[PREMIUM_USER] Processing premium user ${user.email}`);
           
-          console.log(`[PROCESSING_USER] Generating report for ${user.email} - Location: ${location}`);
+          // Get up to 5 surf locations
+          const locations = userData.surfLocations.slice(0, 5);
+          const spotReports = [];
+
+          // Generate reports for each location
+          for (const location of locations) {
+            if (!location) continue;
+            
+            console.log(`[PREMIUM_USER] Generating report for ${user.email} - Location: ${location}`);
+            
+            const surfReport = await generateSurfReport(
+              location, 
+              userData.surferType, 
+              userId, 
+              openAiApiKey, 
+              userData
+            );
+
+            spotReports.push(surfReport);
+          }
+
+          // Find the best spot based on skill match percentage
+          const bestSpot = spotReports.reduce((best, current) => {
+            const currentMatch = parseInt(current.skill_match.replace('%', ''));
+            const bestMatch = parseInt(best.skill_match.replace('%', ''));
+            return currentMatch > bestMatch ? current : best;
+          }, spotReports[0]);
+
+          // Format the featured spot
+          const featuredSpot = {
+            name: bestSpot.spot_name,
+            highlight: bestSpot.match_summary,
+            reason: bestSpot.match_conditions,
+            wave: bestSpot.wave_height,
+            conditions: bestSpot.conditions,
+            skill: bestSpot.skill_match,
+            board: bestSpot.best_board,
+            air: bestSpot.air_temp,
+            cloud: bestSpot.clouds,
+            rain: bestSpot.rain_chance,
+            wind: bestSpot.wind_description,
+            water: bestSpot.water_temp,
+            wetsuit: bestSpot.gear,
+            best_time: bestSpot.prime_time,
+            alt_time: bestSpot.backup_time,
+            tip1: bestSpot.tip1,
+            tip2: bestSpot.tip2,
+            tip3: bestSpot.tip3
+          };
+
+          // Format remaining spots
+          const otherSpots = spotReports
+            .filter(spot => spot.spot_name !== bestSpot.spot_name)
+            .map(spot => ({
+              name: spot.spot_name,
+              highlight: spot.match_summary,
+              wave: spot.wave_height,
+              conditions: spot.conditions,
+              skill: spot.skill_match,
+              board: spot.best_board,
+              best_time: spot.prime_time,
+              alt_time: spot.backup_time
+            }));
+
+          // Prepare template data
+          const templateData = {
+            user_name: user.displayName || 'Surfer',
+            featured_spot: featuredSpot,
+            spots: otherSpots,
+            total_spots: spotReports.length,
+            diary_url: "https://kook-cast.com/diary/new-session",
+            subject: `${featuredSpot.name} is looking 🔥 today!`
+          };
+
+          // Send ONE premium email
+          await sgMail.send({
+            to: user.email,
+            from: fromEmail,
+            subject: `${featuredSpot.name} is looking 🔥 today!`,
+            templateId: premiumTemplateId,
+            dynamicTemplateData: templateData
+          });
+
+          console.log(`[PREMIUM_SUCCESS] Sent report to ${user.email} with ${spotReports.length} spots`);
+        } else {
+          // Regular user flow - only send email for their selected spot
+          console.log(`[REGULAR_USER] Processing regular user ${user.email}`);
           
+          // Get the first (and only) spot
+          const location = userData.surfLocations[0];
+          if (!location) {
+            console.log(`[SKIP_USER] No surf location found for user ${user.email}`);
+            continue;
+          }
+
+          // Generate report for the selected spot
           const surfReport = await generateSurfReport(
             location, 
             userData.surferType, 
@@ -1112,172 +1227,44 @@ exports.sendSurfReports = onSchedule({
           const conditionEmoji = skillMatch >= 75 ? '🟢' : 
                                skillMatch >= 50 ? '🟡' : '🔴';
 
-          console.log(`[EMAIL_SUBJECT] Subject line: ${subject}`);
-
-          // Create weather context for AI interpretation
-          const weatherContext = {
-            current: {
-              temperature: Math.round((surfReport.weatherData.current.temperature * 9/5) + 32),
-              windSpeed: surfReport.weatherData.current.windSpeed,
-              windDirection: surfReport.weatherData.current.windDirection,
-              waterTemperature: surfReport.weatherData.current.buoyData?.waterTemperature ? 
-                Math.round((surfReport.weatherData.current.buoyData.waterTemperature * 9/5) + 32) : null,
-              waveHeight: surfReport.weatherData.current.buoyData?.waveHeight,
-              swellPeriod: surfReport.weatherData.current.buoyData?.swellPeriod,
-              tide: surfReport.weatherData.current.buoyData?.tide,
-              cloudCover: surfReport.weatherData.current.cloudCover,
-              precipitation: surfReport.weatherData.current.precipitation
-            },
-            today: {
-              maxTemp: Math.round((surfReport.weatherData.today.maxTemp * 9/5) + 32),
-              minTemp: Math.round((surfReport.weatherData.today.minTemp * 9/5) + 32),
-              maxWindSpeed: surfReport.weatherData.today.maxWindSpeed
-            }
+          // Format template data
+          const templateData = {
+            spot_name: formattedLocation,
+            match_summary: surfReport.match_summary,
+            match_conditions: surfReport.match_conditions,
+            wave_height: surfReport.wave_height,
+            conditions: surfReport.conditions,
+            skill_match: surfReport.skill_match,
+            best_board: surfReport.best_board,
+            air_temp: surfReport.air_temp,
+            clouds: surfReport.clouds,
+            rain_chance: surfReport.rain_chance,
+            wind_description: surfReport.wind_description,
+            water_temp: surfReport.water_temp,
+            gear: surfReport.gear,
+            prime_time: surfReport.prime_time,
+            prime_notes: surfReport.prime_notes,
+            backup_time: surfReport.backup_time,
+            backup_notes: surfReport.backup_notes,
+            tip1: surfReport.tip1,
+            tip2: surfReport.tip2,
+            tip3: surfReport.tip3,
+            daily_challenge: surfReport.daily_challenge,
+            skill_focus: surfReport.skill_focus,
+            diary_url: "https://kook-cast.com/diary/new-session",
+            subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
           };
 
-          // Add formatted date
-          const currentDate = new Date();
-          const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+          // Send ONE regular email
+          await sgMail.send({
+            to: user.email,
+            from: fromEmail,
+            subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
+            templateId: templateId,
+            dynamicTemplateData: templateData
+          });
 
-          try {
-            // Generate descriptive text using OpenAI
-            const openai = new OpenAI({ apiKey: openAiApiKey });
-            const completion = await openai.chat.completions.create({
-              model: "gpt-4-turbo-preview",
-              messages: [
-                {
-                  role: "system",
-                  content: `You are an experienced surf coach with decades of experience teaching surfers of all levels. 
-                  Your tone is warm, encouraging, and deeply knowledgeable. You write as if you're personally guiding each surfer, 
-                  using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
-                  You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
-                  
-                  Consider the user's surfboards and recent surf sessions when making recommendations:
-                  User's surfboards: ${userData.userBoards}
-                  Recent surf sessions:
-                  ${userData.recentSessions}
-                  
-                  Generate a surf report for ${formattedLocation} on ${formattedDate}. 
-                  Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
-                  
-                  For skill matching, consider:
-                  - The user's surf type (${userData.surferType})
-                  - Current wave conditions
-                  - Wind conditions
-                  - Tide conditions
-                  - Overall difficulty level
-                  
-                  For board recommendations, choose from these available boards:
-                  ${userData.userBoards}
-                  
-                  For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
-                  - spot_name: The name of the surf spot
-                  - match_summary: One sentence explaining why these conditions match the surfer's skill level and preferences
-                  - match_conditions: One sentence about the overall conditions matching their style
-                  - wave_height: Format as "X-Yft • Brief description" (e.g. "4-5ft • Perfect for you")
-                  - conditions: Brief description of wave quality (e.g. "✨ Clean & Glassy")
-                  - skill_match: Format as "XX% Compatible" - calculate based on how well conditions match their surf type
-                  - best_board: Choose from their available boards, format as "X'Y\" BoardType" (e.g. "7'2\" Funboard")
-                  - air_temp: Format as "XX°F (XX°C)"
-                  - clouds: Brief description of cloud cover
-                  - rain_chance: Format as "X%"
-                  - wind_description: Brief description of wind conditions
-                  - water_temp: Format as "XX°F (XX°C)"
-                  - gear: Brief wetsuit recommendation
-                  - prime_time: Format as "X:XX–X:XXam/pm"
-                  - prime_notes: Brief note about why this time is good
-                  - backup_time: Format as "X:XX–X:XXam/pm"
-                  - backup_notes: Brief note about why this time is good
-                  - tip1: Specific tip based on conditions and skill level
-                  - tip2: Specific tip based on conditions and skill level
-                  - tip3: Specific tip based on conditions and skill level
-                  - daily_challenge: One specific, achievable challenge
-                  - skill_focus: One specific skill to focus on
-                  
-                  Keep all descriptions brief and to the point. Use imperial measurements:
-                  - Temperature in Fahrenheit (°F)
-                  - Wind speed in MPH
-                  - Wave height in feet (ft)
-                  
-                  Format your response as a JSON object with the following structure:
-                  {
-                    "spot_name": "string",
-                    "match_summary": "string",
-                    "match_conditions": "string",
-                    "wave_height": "string",
-                    "conditions": "string",
-                    "skill_match": "string",
-                    "best_board": "string",
-                    "air_temp": "string",
-                    "clouds": "string",
-                    "rain_chance": "string",
-                    "wind_description": "string",
-                    "water_temp": "string",
-                    "gear": "string",
-                    "prime_time": "string",
-                    "prime_notes": "string",
-                    "backup_time": "string",
-                    "backup_notes": "string",
-                    "tip1": "string",
-                    "tip2": "string",
-                    "tip3": "string",
-                    "daily_challenge": "string",
-                    "skill_focus": "string"
-                  }`
-                },
-                {
-                  role: "user",
-                  content: `Generate a surf report for ${formattedLocation} on ${formattedDate} using this weather data: ${JSON.stringify(weatherContext)}`
-                }
-              ],
-              response_format: { type: "json_object" }
-            });
-
-            const weatherDescriptions = JSON.parse(completion.choices[0].message.content);
-
-            // Format template data
-            const templateData = {
-              spot_name: formattedLocation,
-              match_summary: surfReport.match_summary,
-              match_conditions: surfReport.match_conditions,
-              wave_height: surfReport.wave_height,
-              conditions: surfReport.conditions,
-              skill_match: surfReport.skill_match,
-              best_board: surfReport.best_board,
-              air_temp: surfReport.air_temp,
-              clouds: surfReport.clouds,
-              rain_chance: surfReport.rain_chance,
-              wind_description: surfReport.wind_description,
-              water_temp: surfReport.water_temp,
-              gear: surfReport.gear,
-              prime_time: surfReport.prime_time,
-              prime_notes: surfReport.prime_notes,
-              backup_time: surfReport.backup_time,
-              backup_notes: surfReport.backup_notes,
-              tip1: surfReport.tip1,
-              tip2: surfReport.tip2,
-              tip3: surfReport.tip3,
-              daily_challenge: surfReport.daily_challenge,
-              skill_focus: surfReport.skill_focus,
-              diary_url: "https://kook-cast.com/diary/new-session",
-              subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
-            };
-
-            // Send email
-            await sgMail.send({
-              to: user.email,
-              from: fromEmail,
-              subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
-              templateId: templateId,
-              dynamicTemplateData: templateData
-            });
-
-            console.log(`[SUCCESS] Sent report to ${user.email} for location ${location}`);
-            processedEmails.push(user.email);
-          } catch (error) {
-            console.error(`[ERROR] Error processing user ${user.email}:`, error);
-            errorCount++;
-          }
+          console.log(`[REGULAR_SUCCESS] Sent report to ${user.email} for spot ${formattedLocation}`);
         }
         successCount++;
       } catch (error) {
@@ -1290,7 +1277,6 @@ exports.sendSurfReports = onSchedule({
       total_users: usersSnapshot.size,
       success_count: successCount,
       error_count: errorCount,
-      processed_emails: processedEmails,
       timestamp: new Date().toISOString()
     });
 
@@ -1439,10 +1425,25 @@ app.post('/sync-email-verification', async (req, res) => {
 // Test function to send emails immediately
 exports.testSendEmails = onRequest({
   cors: true,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
-  memory: '256MiB'
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey],
+  memory: '256MiB',
+  timeoutSeconds: 300,
+  minInstances: 1,
+  maxInstances: 10,
+  concurrency: 1
 }, async (req, res) => {
   try {
+    // Check rate limit
+    const ip = req.ip || req.connection.remoteAddress;
+    const rateLimit = await RateLimiter.checkRateLimit(ip, null, 'test');
+    if (!rateLimit.success) {
+      return res.status(429).json({
+        status: 'error',
+        message: rateLimit.error
+      });
+    }
+
+    console.log('[TEST_SEND_EMAILS] Starting testSendEmails function');
     const { email } = req.body;
     
     if (!email) {
@@ -1459,15 +1460,6 @@ exports.testSendEmails = onRequest({
       .limit(1)
       .get();
 
-    console.log('[TEST_SEND_EMAILS] User snapshot:', {
-      empty: userSnapshot.empty,
-      size: userSnapshot.size,
-      docs: userSnapshot.docs.map(doc => ({
-        id: doc.id,
-        data: doc.data()
-      }))
-    });
-
     if (userSnapshot.empty) {
       return res.status(404).json({
         status: 'error',
@@ -1479,16 +1471,11 @@ exports.testSendEmails = onRequest({
     const user = userDoc.data();
     const userId = userDoc.id;
 
-    console.log('[TEST_SEND_EMAILS] Raw user document:', JSON.stringify(user, null, 2));
+    console.log(`[TEST_SEND_EMAILS] Processing user ${email} (${userId}) with premium status: ${user.premium || user.isPremium}`);
 
-    const surfLocations = user.surfLocations || [];
-
-    console.log('[TEST_SEND_EMAILS] User data:', {
-      userId,
-      surferType: user.surferType,
-      surfLocations,
-      boardTypes: user.boardTypes
-    });
+    // Get user's surf locations
+    const userData = await getUserData(userId);
+    const surfLocations = userData.surfLocations || [];
 
     if (surfLocations.length === 0) {
       return res.status(400).json({
@@ -1500,49 +1487,120 @@ exports.testSendEmails = onRequest({
     const sendGridApiKey = sendgridApiKey.value();
     const fromEmail = sendgridFromEmail.value();
     const templateId = sendgridTemplateId.value();
+    const premiumTemplateId = sendgridPremiumTemplateId.value();
     const openAiApiKey = openaiApiKey.value();
 
     sgMail.setApiKey(sendGridApiKey);
 
-    // Process each surf location for the user
-    for (const location of surfLocations) {
-      console.log(`[TEST_SEND_EMAILS] Generating report for ${email} - Location: ${location}`);
-      
-      // Get user's recent diary entries for context
-      const diaryEntries = await admin.firestore()
-        .collection('users')
-        .doc(userId)
-        .collection('surfEntries')
-        .orderBy('timestamp', 'desc')
-        .limit(5)
-        .get();
+    if (user.premium || user.isPremium) {
+      console.log(`[TEST_SEND_EMAILS] Sending premium email for ${email}`);
+      // Premium user flow - get up to 5 spots and find best match
+      const locations = surfLocations.slice(0, 5);
+      const spotReports = [];
 
-      const recentEntries = diaryEntries.docs.map(doc => {
-        const data = doc.data();
-        return {
-          date: new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
-          rating: data.rating,
-          hadFun: data.hadFun,
-          description: data.description
-        };
-      });
-      
-      // Get user's boards
-      const boardTypes = user.boardTypes || [];
-      const boardLabels = {
-        shortboard: 'Shortboard',
-        longboard: 'Longboard',
-        fish: 'Fish',
-        hybrid: 'Hybrid',
-        funboard: 'Funboard',
-        gun: 'Gun',
-        softtop: 'Soft Top'
+      // Generate reports for each location
+      for (const location of locations) {
+        if (!location) continue;
+        
+        console.log(`[TEST_SEND_EMAILS] Generating report for ${email} - Location: ${location}`);
+        
+        const surfReport = await generateSurfReport(
+          location, 
+          userData.surferType, 
+          userId, 
+          openAiApiKey, 
+          userData
+        );
+
+        spotReports.push(surfReport);
+      }
+
+      // Find the best spot based on skill match percentage
+      const bestSpot = spotReports.reduce((best, current) => {
+        const currentMatch = parseInt(current.skill_match.replace('%', ''));
+        const bestMatch = parseInt(best.skill_match.replace('%', ''));
+        return currentMatch > bestMatch ? current : best;
+      }, spotReports[0]);
+
+      // Format the featured spot
+      const featuredSpot = {
+        name: bestSpot.spot_name,
+        highlight: bestSpot.match_summary,
+        reason: bestSpot.match_conditions,
+        wave: bestSpot.wave_height,
+        conditions: bestSpot.conditions,
+        skill: bestSpot.skill_match,
+        board: bestSpot.best_board,
+        air: bestSpot.air_temp,
+        cloud: bestSpot.clouds,
+        rain: bestSpot.rain_chance,
+        wind: bestSpot.wind_description,
+        water: bestSpot.water_temp,
+        wetsuit: bestSpot.gear,
+        best_time: bestSpot.prime_time,
+        alt_time: bestSpot.backup_time,
+        tip1: bestSpot.tip1,
+        tip2: bestSpot.tip2,
+        tip3: bestSpot.tip3
       };
-      const formattedBoards = boardTypes.map(board => boardLabels[board]).join(', ') || 'No boards selected';
-      const surfReport = await generateSurfReport(location, user.surferType, userId, openAiApiKey, {
-        recentDiaryEntries: recentEntries,
-        userBoards: formattedBoards
+
+      // Format remaining spots
+      const otherSpots = spotReports
+        .filter(spot => spot.spot_name !== bestSpot.spot_name)
+        .map(spot => ({
+          name: spot.spot_name,
+          highlight: spot.match_summary,
+          wave: spot.wave_height,
+          conditions: spot.conditions,
+          skill: spot.skill_match,
+          board: spot.best_board,
+          best_time: spot.prime_time,
+          alt_time: spot.backup_time
+        }));
+
+      // Prepare template data
+      const templateData = {
+        user_name: user.displayName || 'Surfer',
+        featured_spot: featuredSpot,
+        spots: otherSpots,
+        total_spots: spotReports.length,
+        diary_url: "https://kook-cast.com/diary/new-session",
+        subject: `${featuredSpot.name} is looking 🔥 today!`
+      };
+
+      // Send ONE premium email
+      await sgMail.send({
+        to: email,
+        from: fromEmail,
+        subject: `${featuredSpot.name} is looking 🔥 today!`,
+        templateId: premiumTemplateId,
+        dynamicTemplateData: templateData
       });
+
+      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent premium email to ${email} with ${spotReports.length} spots`);
+      
+      return res.json({
+        status: 'success',
+        message: 'Test email sent successfully'
+      });
+    } else {
+      // Regular user flow - only send email for their selected spot
+      console.log(`[TEST_SEND_EMAILS] Sending regular email for ${email}`);
+      const location = surfLocations[0];
+      if (!location) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'No surf location found'
+        });
+      }
+
+      const surfReport = await generateSurfReport(
+        location, 
+        userData.surferType, 
+        userId, 
+        openAiApiKey, 
+        userData
+      );
 
       const formattedLocation = formatLocation(surfReport.location);
       const subject = `Go surf at ${surfReport.prime_time} at ${formattedLocation}`;
@@ -1580,7 +1638,7 @@ exports.testSendEmails = onRequest({
         subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
       };
 
-      // Send email
+      // Send ONE regular email
       await sgMail.send({
         to: email,
         from: fromEmail,
@@ -1589,28 +1647,196 @@ exports.testSendEmails = onRequest({
         dynamicTemplateData: templateData
       });
 
-      console.log(`[TEST_SEND_EMAILS] Successfully sent report to ${email} for location ${location}`);
+      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent regular email to ${email} for spot ${formattedLocation}`);
+      
+      return res.json({
+        status: 'success',
+        message: 'Test email sent successfully'
+      });
     }
-
-    res.json({
-      status: 'success',
-      message: 'Email distribution started. Check Firebase logs for progress.'
-    });
-
   } catch (error) {
     console.error('[TEST_SEND_EMAILS] Error:', error);
-    // Log error to Firestore
-    await admin.firestore().collection('emailLogs').add({
-      type: 'test_send_error',
-      timestamp: new Date().toISOString(),
-      error: error.message
-    });
-    
     res.status(500).json({
       status: 'error',
       message: 'Failed to send test email',
       error: error.message
     });
+  }
+});
+
+// Premium email function
+exports.sendPremiumSurfReports = onSchedule({
+  schedule: '0 5 * * *',
+  timeZone: 'America/Los_Angeles',
+  retryCount: 3,
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridPremiumTemplateId, openaiApiKey],
+  memory: '256MiB'
+}, async (event) => {
+  try {
+    console.log('[PREMIUM_REPORTS] Starting premium surf report distribution');
+    
+    // Get all premium users with emailVerified = true
+    const usersSnapshot = await admin.firestore()
+      .collection('users')
+      .where('emailVerified', '==', true)
+      .where('isPremium', '==', true)
+      .get();
+    
+    console.log(`[PREMIUM_REPORTS] Found ${usersSnapshot.size} premium users`);
+
+    const sendGridApiKey = sendgridApiKey.value();
+    const fromEmail = sendgridFromEmail.value();
+    const premiumTemplateId = sendgridPremiumTemplateId.value();
+    const openAiApiKey = openaiApiKey.value();
+
+    sgMail.setApiKey(sendGridApiKey);
+
+    // Process each premium user
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const userDoc of usersSnapshot.docs) {
+      const user = userDoc.data() || {};
+      const userId = userDoc.id;
+      
+      try {
+        // Get user data with defaults
+        const userData = await getUserData(userId);
+        
+        // Skip if no surf locations
+        if (!userData.surfLocations || userData.surfLocations.length === 0) {
+          console.log(`[SKIP_PREMIUM_USER] User ${user.email} has no surf locations set`);
+          continue;
+        }
+
+        // Get up to 5 surf locations
+        const locations = userData.surfLocations.slice(0, 5);
+        const spotReports = [];
+
+        // Generate reports for each location
+        for (const location of locations) {
+          if (!location) continue;
+          
+          console.log(`[PROCESSING_PREMIUM_USER] Generating report for ${user.email} - Location: ${location}`);
+          
+          const surfReport = await generateSurfReport(
+            location, 
+            userData.surferType, 
+            userId, 
+            openAiApiKey, 
+            userData
+          );
+
+          // Format the report for the template
+          const formattedReport = {
+            spot_name: formatLocation(surfReport.location),
+            match_summary: surfReport.match_summary,
+            match_conditions: surfReport.match_conditions,
+            wave_height: surfReport.wave_height,
+            conditions: surfReport.conditions,
+            skill_match: surfReport.skill_match,
+            best_board: surfReport.best_board,
+            air_temp: surfReport.air_temp,
+            clouds: surfReport.clouds,
+            rain_chance: surfReport.rain_chance,
+            wind_description: surfReport.wind_description,
+            water_temp: surfReport.water_temp,
+            gear: surfReport.gear,
+            prime_time: surfReport.prime_time,
+            prime_notes: surfReport.prime_notes,
+            backup_time: surfReport.backup_time,
+            backup_notes: surfReport.backup_notes,
+            tip1: surfReport.tip1,
+            tip2: surfReport.tip2,
+            tip3: surfReport.tip3,
+            daily_challenge: surfReport.daily_challenge,
+            skill_focus: surfReport.skill_focus
+          };
+
+          spotReports.push(formattedReport);
+        }
+
+        // Find the best spot based on skill match percentage
+        const bestSpot = spotReports.reduce((best, current) => {
+          const currentMatch = parseInt(current.skill_match.replace('%', ''));
+          const bestMatch = parseInt(best.skill_match.replace('%', ''));
+          return currentMatch > bestMatch ? current : best;
+        }, spotReports[0]);
+
+        // Format the featured spot
+        const featuredSpot = {
+          name: bestSpot.spot_name,
+          highlight: bestSpot.match_summary,
+          reason: bestSpot.match_conditions,
+          wave: bestSpot.wave_height,
+          conditions: bestSpot.conditions,
+          skill: bestSpot.skill_match,
+          board: bestSpot.best_board,
+          air: bestSpot.air_temp,
+          cloud: bestSpot.clouds,
+          rain: bestSpot.rain_chance,
+          wind: bestSpot.wind_description,
+          water: bestSpot.water_temp,
+          wetsuit: bestSpot.gear,
+          best_time: bestSpot.prime_time,
+          alt_time: bestSpot.backup_time,
+          tip1: bestSpot.tip1,
+          tip2: bestSpot.tip2,
+          tip3: bestSpot.tip3
+        };
+
+        // Format remaining spots
+        const otherSpots = spotReports
+          .filter(spot => spot.spot_name !== bestSpot.spot_name)
+          .map(spot => ({
+            name: spot.spot_name,
+            highlight: spot.match_summary,
+            wave: spot.wave_height,
+            conditions: spot.conditions,
+            skill: spot.skill_match,
+            board: spot.best_board,
+            best_time: spot.prime_time,
+            alt_time: spot.backup_time
+          }));
+
+        // Prepare template data
+        const templateData = {
+          user_name: user.displayName || 'Surfer',
+          featured_spot: featuredSpot,
+          spots: otherSpots,
+          total_spots: spotReports.length,
+          diary_url: "https://kook-cast.com/diary/new-session",
+          subject: `${featuredSpot.name} is looking 🔥 today!`
+        };
+
+        // Send premium email
+        await sgMail.send({
+          to: user.email,
+          from: fromEmail,
+          subject: `${featuredSpot.name} is looking 🔥 today!`,
+          templateId: premiumTemplateId,
+          dynamicTemplateData: templateData
+        });
+
+        console.log(`[PREMIUM_SUCCESS] Sent report to ${user.email} for ${spotReports.length} locations`);
+        successCount++;
+      } catch (error) {
+        console.error(`[PREMIUM_ERROR] Failed to process user ${user.email}:`, error);
+        errorCount++;
+      }
+    }
+
+    console.log('[PREMIUM_REPORTS_COMPLETE]', {
+      total_users: usersSnapshot.size,
+      success_count: successCount,
+      error_count: errorCount,
+      timestamp: new Date().toISOString()
+    });
+
+    return { success: true, message: 'Premium surf reports sent successfully' };
+  } catch (error) {
+    console.error('[PREMIUM_REPORTS_ERROR]', error);
+    throw error;
   }
 });
 
@@ -1622,7 +1848,28 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
-// Export the Express app as a Firebase Function
+// Add rate limiting middleware to Express app
+app.use(async (req, res, next) => {
+  try {
+    const ip = req.ip || req.connection.remoteAddress;
+    const userId = req.body.userId || null;
+    const endpoint = req.path.split('/').pop() || 'default';
+    
+    const rateLimit = await RateLimiter.checkRateLimit(ip, userId, endpoint);
+    if (!rateLimit.success) {
+      return res.status(429).json({
+        status: 'error',
+        message: rateLimit.error
+      });
+    }
+    next();
+  } catch (error) {
+    console.error('[RATE_LIMIT_ERROR]', error);
+    next();
+  }
+});
+
+// Update API function with rate limiting
 exports.api = onRequest({
   cors: true,
   maxInstances: 10,
@@ -1630,7 +1877,8 @@ exports.api = onRequest({
   timeoutSeconds: 60,
   minInstances: 0,
   secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
-  invoker: "public"
+  invoker: "public",
+  concurrency: 1
 }, app);
 
 // Export the functions
