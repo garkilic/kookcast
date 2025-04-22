@@ -7,7 +7,6 @@ import { onAuthStateChanged, sendEmailVerification, deleteUser } from 'firebase/
 import { doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
-import UpgradeToPremium from '@/components/UpgradeToPremium';
 import SurfDiaryList from '@/components/SurfDiaryList';
 import Link from 'next/link';
 
@@ -17,7 +16,7 @@ interface UserData {
   surfLocations: string[];
   surferType: string;
   emailVerified: boolean;
-  isPremium: boolean;
+  premium: boolean;
   homeBreak?: string;
   boardTypes: string[];
 }
@@ -155,7 +154,7 @@ export default function DashboardV2() {
   };
 
   const handleSpotSelect = (spotId: string) => {
-    if (!userData?.isPremium && selectedSpots.length >= 1 && !selectedSpots.includes(spotId)) {
+    if (!userData?.premium && selectedSpots.length >= 1 && !selectedSpots.includes(spotId)) {
       setShowUpgradeModal(true);
       return;
     }
@@ -279,7 +278,7 @@ export default function DashboardV2() {
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="flex items-center space-x-4">
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
-              {userData?.isPremium && (
+              {userData?.premium && (
                 <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
                   Kook+ Member
                 </span>
@@ -335,7 +334,7 @@ export default function DashboardV2() {
                   <h2 className="text-2xl font-bold mb-2">Welcome to Kookcast</h2>
                   <p className="text-blue-100">Your personal surf forecasting assistant</p>
                 </div>
-                {userData?.isPremium && (
+                {userData?.premium && (
                   <span className="px-3 py-1 bg-white/20 text-white rounded-full text-sm font-medium">
                     Kook+ Member
                   </span>
@@ -345,7 +344,7 @@ export default function DashboardV2() {
 
             {/* Surf Spots Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {userData?.isPremium ? (
+              {userData?.premium ? (
                 // Premium user view - show all spots
                 surfSpots.map((spot) => (
                   <div key={spot.id} className="bg-white rounded-lg shadow p-4 sm:p-6">
@@ -470,13 +469,22 @@ export default function DashboardV2() {
                   >
                     Update Surf Spots
                   </button>
-                  <button
-                    onClick={() => router.push('/profile-setup')}
-                    className="w-full px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm sm:text-base"
+                  <Link
+                    href={{
+                      pathname: '/profile-setup',
+                      query: {
+                        email: userData?.email,
+                        surferType: userData?.surferType,
+                        boardTypes: userData?.boardTypes?.join(','),
+                        homeBreak: userData?.homeBreak,
+                        surfLocations: userData?.surfLocations?.join(',')
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm sm:text-base block text-center"
                   >
                     Update Profile
-                  </button>
-                  {userData?.isPremium && (
+                  </Link>
+                  {userData?.premium && (
                     <button
                       onClick={handleCancelSubscription}
                       disabled={isCancelling}
@@ -503,7 +511,7 @@ export default function DashboardV2() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Surf Location{userData?.isPremium ? 's' : ''}</p>
+                    <p className="text-sm text-gray-500">Surf Location{userData?.premium ? 's' : ''}</p>
                     <p className="font-medium text-sm sm:text-base">
                       {surfSpots.map(spot => spot.name).join(', ') || 'Not set'}
                     </p>
@@ -617,10 +625,28 @@ export default function DashboardV2() {
 
       {/* Upgrade Modal */}
       {showUpgradeModal && (
-        <UpgradeToPremium
-          onClose={() => setShowUpgradeModal(false)}
-          currentSpots={userData?.surfLocations || []}
-        />
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">Upgrade to Premium</h3>
+            <p className="text-gray-600 mb-4">
+              To add more surf spots, you need to upgrade to Kook+ Premium.
+            </p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <Link
+                href="/signup?type=premium"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Upgrade Now
+              </Link>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Spot Picker Modal */}
@@ -653,7 +679,7 @@ export default function DashboardV2() {
                     spot.region.toLowerCase().includes(searchQuery.toLowerCase())
                   )
                   .map((spot) => {
-                    const isLocked = !userData?.isPremium && !selectedSpots.includes(spot.id) && selectedSpots.length > 0;
+                    const isLocked = !userData?.premium && !selectedSpots.includes(spot.id) && selectedSpots.length > 0;
                     return (
                       <div
                         key={spot.id}
@@ -697,7 +723,7 @@ export default function DashboardV2() {
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="text-sm text-gray-600">
-                      {userData?.isPremium
+                      {userData?.premium
                         ? 'Select up to 5 spots'
                         : 'Free users can select 1 spot'}
                     </p>
@@ -722,7 +748,7 @@ export default function DashboardV2() {
       {/* Home Break Picker Modal */}
       {showHomeBreakPicker && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-lg max-w-md w-full">
+          <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-hidden">
             <div className="p-6 border-b border-gray-200">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-semibold">Set Your Home Break</h3>
@@ -733,30 +759,44 @@ export default function DashboardV2() {
                   ✕
                 </button>
               </div>
-              <div className="space-y-4">
-                {surfSpots.map((spot) => (
-                  <div
-                    key={spot.id}
-                    onClick={() => handleSetHomeBreak(spot.id)}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                      userData?.homeBreak === spot.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-blue-300'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium">{spot.name}</h4>
-                        <p className="text-sm text-gray-600">{spot.region}</p>
+              <div className="relative mb-4">
+                <input
+                  type="text"
+                  placeholder="Search surf spots..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto">
+                {allSpots
+                  .filter(spot => 
+                    spot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    spot.region.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((spot) => (
+                    <div
+                      key={spot.id}
+                      onClick={() => handleSetHomeBreak(spot.id)}
+                      className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                        userData?.homeBreak === spot.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-blue-300'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-medium">{spot.name}</h4>
+                          <p className="text-sm text-gray-600">{spot.region}</p>
+                        </div>
+                        {spot.isMostPopular && (
+                          <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                            Popular
+                          </span>
+                        )}
                       </div>
-                      {spot.isMostPopular && (
-                        <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                          Popular
-                        </span>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
             <div className="p-6 bg-gray-50 border-t border-gray-200">
