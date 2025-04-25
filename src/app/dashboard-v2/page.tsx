@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { auth } from '@/lib/firebase';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { onAuthStateChanged, sendEmailVerification, deleteUser } from 'firebase/auth';
-import { doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { onAuthStateChanged, sendEmailVerification, deleteUser, getAuth } from 'firebase/auth';
+import { doc, getDoc, deleteDoc, updateDoc, getFirestore, setDoc, collection, getDocs } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import SurfDiaryList from '@/components/SurfDiaryList';
 import Link from 'next/link';
+import PaymentForm from '@/components/PaymentForm';
+
+import useUserProfile from '@/hooks/useUserProfile';
 
 interface UserData {
   email: string;
@@ -19,6 +21,10 @@ interface UserData {
   premium: boolean;
   homeBreak?: string;
   boardTypes: string[];
+  displayName?: string;
+  photoURL?: string;
+  updatedAt?: string;
+  selectedSpots?: string[]; // For backward compatibility
 }
 
 const boardLabels: Record<string, string> = {
@@ -31,9 +37,15 @@ const boardLabels: Record<string, string> = {
 };
 
 export default function DashboardV2() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [surfSpots, setSurfSpots] = useState<SurfSpot[]>([]);
+  // Custom user profile hook
+  const {
+    userData,
+    surfSpots,
+    allSpots,
+    loading,
+    error: userProfileError,
+  } = useUserProfile();
+
   const [isResending, setIsResending] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState('');
@@ -44,81 +56,32 @@ export default function DashboardV2() {
   const [updateError, setUpdateError] = useState('');
   const [showSpotPicker, setShowSpotPicker] = useState(false);
   const [selectedSpots, setSelectedSpots] = useState<string[]>([]);
-  const [allSpots, setAllSpots] = useState<SurfSpot[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showHomeBreakPicker, setShowHomeBreakPicker] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const router = useRouter();
 
+  // Keep selectedSpots in sync with userData
   useEffect(() => {
-    console.log('DashboardV2 mounted');
-    
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      console.log('Auth state changed:', user);
-      
-      if (!user) {
-        console.log('No user found, redirecting to home');
-        router.push('/');
-        return;
-      }
-
-      // Check email verification status
-      setIsVerified(user.emailVerified);
-      
-      try {
-        // Get user data from Firestore
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data() as UserData;
-          
-          // Update Firestore if email verification status has changed
-          if (data.emailVerified !== user.emailVerified) {
-            console.log('Updating Firestore email verification status');
-            await updateDoc(doc(db, 'users', user.uid), {
-              emailVerified: user.emailVerified,
-              emailVerifiedAt: user.emailVerified ? new Date().toISOString() : null
-            });
-          }
-          
-          setUserData(data);
-          setSelectedSpots(data.surfLocations || []);
-
-          // Fetch surf spot details
-          const spots = await getSurfSpots();
-          setAllSpots(spots);
-          if (data.surfLocations && data.surfLocations.length > 0) {
-            const userSpots = spots.filter(s => data.surfLocations.includes(s.id));
-            setSurfSpots(userSpots);
-          }
-        }
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-        setIsLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [router]);
+    const spots = userData?.surfLocations || [];
+    setSelectedSpots(spots);
+    setIsVerified(userData?.emailVerified || false);
+  }, [userData]);
 
   // Add a refresh mechanism to check verification status
   const refreshVerificationStatus = async () => {
-    if (auth.currentUser) {
-      await auth.currentUser.reload();
-      setIsVerified(auth.currentUser.emailVerified);
-      if (auth.currentUser.emailVerified) {
-        setSuccess('Email verified successfully!');
-      }
+    if (typeof window !== 'undefined' && window.location) {
+      // Soft reload the page to re-trigger hooks and update verification
+      window.location.reload();
     }
   };
 
   const handleResendVerification = async () => {
+    const { auth } = await import('@/lib/firebase');
     if (!auth.currentUser) return;
-    
     setIsResending(true);
     setError('');
     setSuccess('');
-    
     try {
       await sendEmailVerification(auth.currentUser);
       setSuccess('Verification email sent! Please check your inbox.');
@@ -130,22 +93,16 @@ export default function DashboardV2() {
   };
 
   const handleDeleteAccount = async () => {
+    const { auth } = await import('@/lib/firebase');
     if (!auth.currentUser) return;
-    
     if (!window.confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
       return;
     }
-    
     setIsDeleting(true);
     setError('');
-    
     try {
-      // Delete user data from Firestore
       await deleteDoc(doc(db, 'users', auth.currentUser.uid));
-      
-      // Delete the user account
       await deleteUser(auth.currentUser);
-      
       router.push('/');
     } catch (error: any) {
       setError(error.message);
@@ -158,7 +115,6 @@ export default function DashboardV2() {
       setShowUpgradeModal(true);
       return;
     }
-
     setSelectedSpots(prev => {
       if (prev.includes(spotId)) {
         return prev.filter(id => id !== spotId);
@@ -169,31 +125,15 @@ export default function DashboardV2() {
   };
 
   const handleUpdateSpots = async () => {
+    const { auth } = await import('@/lib/firebase');
     if (!auth.currentUser) return;
-    
     setIsUpdating(true);
     setUpdateError('');
-
     try {
       await updateDoc(doc(db, 'users', auth.currentUser.uid), {
         surfLocations: selectedSpots,
         updatedAt: new Date().toISOString(),
       });
-
-      // Refresh user data
-      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-      if (userDoc.exists()) {
-        const data = userDoc.data() as UserData;
-        setUserData(data);
-        
-        // Fetch updated surf spot details
-        if (data.surfLocations && data.surfLocations.length > 0) {
-          const spots = await getSurfSpots();
-          const userSpots = spots.filter(s => data.surfLocations.includes(s.id));
-          setSurfSpots(userSpots);
-        }
-      }
-
       setShowSpotPicker(false);
     } catch (error: any) {
       setUpdateError(error.message);
@@ -203,24 +143,15 @@ export default function DashboardV2() {
   };
 
   const handleSetHomeBreak = async (spotId: string) => {
+    const { auth } = await import('@/lib/firebase');
     if (!auth.currentUser) return;
-    
     setIsUpdating(true);
     setUpdateError('');
-
     try {
       await updateDoc(doc(db, 'users', auth.currentUser.uid), {
         homeBreak: spotId,
         updatedAt: new Date().toISOString(),
       });
-
-      // Refresh user data
-      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-      if (userDoc.exists()) {
-        const data = userDoc.data() as UserData;
-        setUserData(data);
-      }
-
       setShowHomeBreakPicker(false);
     } catch (error: any) {
       setUpdateError(error.message);
@@ -229,40 +160,82 @@ export default function DashboardV2() {
     }
   };
 
-  const handleCancelSubscription = async () => {
-    if (!window.confirm('Are you sure you want to cancel your Kook+ subscription? You will lose access to premium features at the end of your billing period.')) {
-      return;
-    }
-
-    setIsCancelling(true);
-    setError('');
-
-    try {
-      const response = await fetch('/api/cancel-subscription', {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to cancel subscription');
+  // Inline CancelSubscriptionButton (Firestore-based)
+  const CancelSubscriptionButton = () => {
+    const [isCancelling, setIsCancelling] = useState(false);
+    const handleCancelSubscription = async () => {
+      if (!window.confirm('Are you sure you want to cancel your Kook+ subscription?')) {
+        return;
       }
+      setIsCancelling(true);
+      try {
+        const authInstance = getAuth();
+        const dbInstance = getFirestore();
+        const user = authInstance.currentUser;
+        if (!user) {
+          alert('You must be logged in.');
+          return;
+        }
 
-      // Refresh user data
-      const userDoc = await getDoc(doc(db, 'users', auth.currentUser!.uid));
-      if (userDoc.exists()) {
-        const data = userDoc.data() as UserData;
-        setUserData(data);
+        // Get the customer document
+        const customerRef = doc(dbInstance, 'customers', user.uid);
+        const customerSnap = await getDoc(customerRef);
+        
+        if (!customerSnap.exists()) {
+          alert('No customer record found.');
+          return;
+        }
+
+        // Get the subscriptions subcollection
+        const subscriptionsRef = collection(dbInstance, 'customers', user.uid, 'subscriptions');
+        const subscriptionsSnap = await getDocs(subscriptionsRef);
+        
+        if (subscriptionsSnap.empty) {
+          alert('No active subscription found.');
+          return;
+        }
+
+        // Find the active subscription
+        const activeSubscription = subscriptionsSnap.docs.find(doc => {
+          const data = doc.data();
+          return data.status === 'active' && !data.cancel_at_period_end;
+        });
+
+        if (!activeSubscription) {
+          alert('No active subscription found.');
+          return;
+        }
+
+        // Update the subscription to cancel at period end
+        await updateDoc(doc(dbInstance, 'customers', user.uid, 'subscriptions', activeSubscription.id), {
+          cancel_at_period_end: true,
+        });
+
+        alert('Subscription cancellation scheduled. It will cancel at the end of the billing period.');
+        window.location.reload();
+      } catch (error) {
+        console.error('Error cancelling subscription:', error);
+        alert('Failed to cancel subscription.');
+      } finally {
+        setIsCancelling(false);
       }
+    };
 
-      setSuccess('Your subscription has been cancelled. You will maintain access until the end of your billing period.');
-    } catch (error: any) {
-      setError(error.message);
-    } finally {
-      setIsCancelling(false);
-    }
+    return (
+      <button
+        onClick={handleCancelSubscription}
+        disabled={isCancelling}
+        className="w-full px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors text-sm sm:text-base"
+      >
+        {isCancelling ? 'Cancelling...' : 'Cancel Subscription'}
+      </button>
+    );
   };
 
-  if (isLoading) {
+  // Use error from hook unless local error is set
+  const displayError = error || userProfileError;
+
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="text-xl">Loading...</div>
@@ -319,9 +292,9 @@ export default function DashboardV2() {
           )}
 
           {/* Error Message */}
-          {error && (
+          {displayError && (
             <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6 rounded-lg">
-              <p className="text-red-700 text-center sm:text-left">{error}</p>
+              <p className="text-red-700 text-center sm:text-left">{displayError}</p>
             </div>
           )}
 
@@ -345,8 +318,8 @@ export default function DashboardV2() {
             {/* Surf Spots Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {userData?.premium ? (
-                // Premium user view - show all spots
-                surfSpots.map((spot) => (
+                // Premium user view - show selected spots
+                surfSpots.map((spot: SurfSpot) => (
                   <div key={spot.id} className="bg-white rounded-lg shadow p-4 sm:p-6">
                     <div className="flex justify-between items-start">
                       <div>
@@ -484,15 +457,7 @@ export default function DashboardV2() {
                   >
                     Update Profile
                   </Link>
-                  {userData?.premium && (
-                    <button
-                      onClick={handleCancelSubscription}
-                      disabled={isCancelling}
-                      className="w-full px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 text-sm sm:text-base"
-                    >
-                      {isCancelling ? 'Cancelling...' : 'Cancel Kook+ Subscription'}
-                    </button>
-                  )}
+                  {userData?.premium && <CancelSubscriptionButton />}
                 </div>
               </div>
 
@@ -638,12 +603,34 @@ export default function DashboardV2() {
               >
                 Cancel
               </button>
-              <Link
-                href="/signup?type=premium"
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Upgrade Now
-              </Link>
+              <PaymentForm
+                onSuccess={async () => {
+                  const authInstance = getAuth();
+                  const db = getFirestore();
+                  const user = authInstance.currentUser;
+
+                  if (user) {
+                    const userRef = doc(db, 'users', user.uid);
+                    const userSnap = await getDoc(userRef);
+
+                    if (userSnap.exists()) {
+                      const existingData = userSnap.data();
+
+                      await setDoc(userRef, {
+                        ...existingData,
+                        premium: true,
+                        updatedAt: new Date().toISOString()
+                      });
+                    }
+
+                    await sendEmailVerification(user);
+                  }
+
+                  setShowUpgradeModal(false);
+                  window.location.reload(); // Refresh to show updated premium status
+                }}
+                onCancel={() => setShowUpgradeModal(false)}
+              />
             </div>
           </div>
         </div>

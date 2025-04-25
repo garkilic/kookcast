@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
@@ -47,6 +47,16 @@ const setAuthPersistence = async () => {
   }
 };
 
+// Initialize auth persistence
 setAuthPersistence();
+
+// Set up auth state listener
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    console.log('User is signed in:', user.uid);
+  } else {
+    console.log('User is signed out');
+  }
+});
 
 export { app, auth, db };

@@ -6,6 +6,11 @@ import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { useRouter } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { loadStripe } from '@stripe/stripe-js';
+import { getAuth } from 'firebase/auth';
+import { getFirestore, collection, doc as firestoreDoc, addDoc, onSnapshot } from 'firebase/firestore';
+
+const stripePromise = loadStripe('pk_test_51REGmDCKpNGLkmsGVt0NT8thUxrD9MKt11KqoSJzuZNUgz1lcE7lxye6vV37my8yV36JA6SmDBLmwXZaSik5fhNc00Nb10iqES');
 
 type Step = 'spot' | 'credentials' | 'payment' | 'verify' | 'surferType';
 
@@ -21,24 +26,65 @@ interface MultiStepSignUpPaidProps {
   initialEmail?: string;
 }
 
-// Payment form component
 const PaymentForm = ({ onSuccess, onCancel }: { 
   onSuccess: () => void; 
   onCancel: () => void;
 }) => {
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setProcessing(true);
+    setError('');
 
     try {
-      // Simulate payment processing
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      onSuccess();
+      console.log('Starting Stripe checkout process...');
+      const authInstance = getAuth();
+      const db = getFirestore();
+      const user = authInstance.currentUser;
+
+      if (!user) {
+        throw new Error('User not logged in');
+      }
+
+      console.log('Creating checkout session for user:', user.uid);
+      const checkoutRef = collection(firestoreDoc(db, 'customers', user.uid), 'checkout_sessions');
+      const docRef = await addDoc(checkoutRef, {
+        price: 'price_1RHZdvCKpNGLkmsGfABymF8f',
+        success_url: window.location.origin + '/dashboard-v2',
+        cancel_url: window.location.origin + '/cancel',
+        mode: 'subscription'
+      });
+
+      console.log('Checkout session created, waiting for URL...');
+      onSnapshot(docRef, async (snap) => {
+        const data = snap.data();
+        console.log('Checkout session data:', data);
+        
+        if (data?.error) {
+          console.error('Stripe error:', data.error);
+          setError(data.error.message);
+          setProcessing(false);
+          return;
+        }
+
+        if (data?.url) {
+          console.log('Redirecting to Stripe checkout...');
+        const stripe = await stripePromise;
+          if (stripe) {
+          window.location.assign(data.url);
+          } else {
+            console.error('Stripe not initialized');
+            setError('Payment system not available');
+            setProcessing(false);
+          }
+        }
+      });
+
     } catch (err: any) {
-      console.error('Error:', err);
-    } finally {
+      console.error('Error in payment process:', err);
+      setError(err.message || 'An error occurred during payment');
       setProcessing(false);
     }
   };
@@ -48,6 +94,11 @@ const PaymentForm = ({ onSuccess, onCancel }: {
       <div className="bg-white p-4 rounded-lg shadow">
         <p className="text-gray-600">Premium membership will be activated after signup.</p>
       </div>
+      {error && (
+        <div className="bg-red-50 p-4 rounded-lg">
+          <p className="text-red-600">{error}</p>
+        </div>
+      )}
       <div className="flex justify-between">
         <button
           type="button"
@@ -95,8 +146,15 @@ export default function MultiStepSignUpPaid({
 
   useEffect(() => {
     const fetchSpots = async () => {
+      try {
+        console.log('Fetching surf spots...');
       const surfSpots = await getSurfSpots();
+        console.log('Fetched spots:', surfSpots);
       setSpots(surfSpots);
+      } catch (error) {
+        console.error('Error fetching spots:', error);
+        setError('Failed to load surf spots. Please try again.');
+      }
     };
     fetchSpots();
   }, []);
@@ -133,12 +191,12 @@ export default function MultiStepSignUpPaid({
         setError('Password must be at least 6 characters');
         return;
       }
+      setStep('surferType');
+    } else if (step === 'surferType') {
       setStep('credentials');
     } else if (step === 'credentials') {
       setStep('payment');
     } else if (step === 'payment') {
-      setStep('surferType');
-    } else if (step === 'surferType') {
       setStep('verify');
     }
   };
@@ -171,20 +229,17 @@ export default function MultiStepSignUpPaid({
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Send email verification
-      await sendEmailVerification(user);
-
-      // Create user document in Firestore
+      // Create user document in Firestore (premium will be set after payment)
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
-        premium: true, // Set premium status directly
-        selectedSpots,
+        premium: false,
+        surfLocations: selectedSpots,
         surferPreferences,
         createdAt: new Date().toISOString(),
       });
 
-      setVerificationSent(true);
-      setStep('verify');
+      // Move to payment step (do not send verification yet)
+      setStep('payment');
     } catch (error: any) {
       setError(error.message);
     } finally {
@@ -196,6 +251,10 @@ export default function MultiStepSignUpPaid({
     spot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     spot.region.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  console.log('Filtered spots:', filteredSpots);
+  console.log('Search query:', searchQuery);
+  console.log('Total spots:', spots.length);
 
   const displayedSpots = showAllSpots ? filteredSpots : filteredSpots.slice(0, SPOTS_TO_SHOW);
   const hasMoreSpots = filteredSpots.length > SPOTS_TO_SHOW;
@@ -474,7 +533,26 @@ export default function MultiStepSignUpPaid({
         <div className="space-y-4">
           <h2 className="text-2xl font-bold text-gray-900">Payment Information</h2>
           <PaymentForm
-            onSuccess={() => setStep('surferType')}
+            onSuccess={async () => {
+              try {
+                const authInstance = getAuth();
+                const dbInstance = getFirestore();
+                const user = authInstance.currentUser;
+                if (!user) throw new Error('User not logged in');
+                // Set premium true in Firestore
+                await setDoc(
+                  doc(dbInstance, 'users', user.uid),
+                  { premium: true },
+                  { merge: true }
+                );
+                // Send email verification
+                await sendEmailVerification(user);
+                setVerificationSent(true);
+                setStep('verify');
+              } catch (err: any) {
+                setError(err.message || 'Error during post-payment process');
+              }
+            }}
             onCancel={() => setPaymentCancelled(true)}
           />
         </div>

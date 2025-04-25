@@ -2,16 +2,29 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  console.log('Middleware called for path:', request.nextUrl.pathname);
+  const pathname = request.nextUrl.pathname;
+  console.log('Middleware called for path:', pathname);
   
-  const isAuthPage = request.nextUrl.pathname.startsWith('/auth');
-  const isDashboardPage = request.nextUrl.pathname.startsWith('/dashboard');
-
-  // For now, we'll allow access to all pages
-  // In a production environment, you would want to implement proper Firebase auth checks here
-  return NextResponse.next();
+  // Allow access to all pages for now
+  // We'll implement proper auth checks later
+  const response = NextResponse.next();
+  
+  // Add some headers for debugging
+  response.headers.set('x-middleware-cache', 'no-cache');
+  response.headers.set('x-middleware-path', pathname);
+  
+  return response;
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/auth/:path*']
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+  ],
 }; 
