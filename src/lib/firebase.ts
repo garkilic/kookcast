@@ -49,4 +49,4 @@ const setAuthPersistence = async () => {
 
 setAuthPersistence();
 
-export { app, auth, db };
+export { app, auth, db, getAuth };

@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification, signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, DocumentData, collection, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { useRouter } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
-type Step = 'spot' | 'credentials' | 'payment' | 'verify' | 'surferType';
+type Step = 'spot' | 'surferType' | 'credentials' | 'verify' | 'payment';
 
 interface SurferPreferences {
   description: string;
@@ -21,47 +21,191 @@ interface MultiStepSignUpPaidProps {
   initialEmail?: string;
 }
 
+interface PortalSessionResponse {
+  url: string;
+}
+
+// Add development mode flag
+const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+
 // Payment form component
-const PaymentForm = ({ onSuccess, onCancel }: { 
+const PaymentForm = ({ onSuccess, onCancel, email, password }: { 
   onSuccess: () => void; 
   onCancel: () => void;
+  email: string;
+  password: string;
 }) => {
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState('');
+  const router = useRouter();
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setProcessing(true);
+    setError('');
 
     try {
-      // Simulate payment processing
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      onSuccess();
+      console.log('Starting payment process...');
+      
+      // Create user with email and password
+      console.log('Creating user account...');
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      console.log('User account created:', user.uid);
+
+      // Create user document in Firestore
+      console.log('Creating user document in Firestore...');
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        email: user.email,
+        createdAt: new Date().toISOString(),
+        isPremium: false, // Will be updated after payment
+        emailVerified: IS_DEVELOPMENT, // Set to true in development
+      });
+      console.log('User document created in Firestore');
+
+      // Create a customer portal session
+      console.log('Creating customer portal session...');
+      const response = await fetch('/api/createPortalSession', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          returnUrl: window.location.origin,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create portal session');
+      }
+
+      const { url } = await response.json();
+      
+      // Redirect to the portal URL
+      if (url) {
+        console.log('Redirecting to Stripe Customer Portal...');
+        window.location.href = url;
+      } else {
+        throw new Error('No portal URL returned');
+      }
     } catch (err: any) {
-      console.error('Error:', err);
+      console.error('Error in payment process:', err);
+      if (err.message.includes('collection')) {
+        setError('Payment system is not properly configured. Please try again later.');
+      } else {
+        setError(err.message || 'An error occurred during payment processing');
+      }
     } finally {
       setProcessing(false);
     }
   };
 
+  const handleCancel = () => {
+    // Clear any pending premium user data
+    localStorage.removeItem('pendingPremiumUser');
+    // Call the onCancel callback
+    onCancel();
+    // Redirect to the cancel page
+    router.push('/payment/cancel');
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="bg-white p-4 rounded-lg shadow">
-        <p className="text-gray-600">Premium membership will be activated after signup.</p>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {IS_DEVELOPMENT && (
+        <div className="bg-yellow-50 p-4 rounded-lg mb-6">
+          <h4 className="text-lg font-semibold text-yellow-800 mb-2">Test Mode</h4>
+          <p className="text-yellow-700 mb-2">
+            You're in test mode. Use these test card numbers:
+          </p>
+          <ul className="list-disc list-inside text-yellow-700 space-y-1">
+            <li>Success: 4242 4242 4242 4242</li>
+            <li>Decline: 4000 0000 0000 0002</li>
+          </ul>
+          <p className="text-yellow-700 mt-2">
+            Use any future expiration date, any 3-digit CVC, and any postal code.
+          </p>
+        </div>
+      )}
+
+      <div className="bg-white p-6 rounded-lg shadow-md">
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">Kook+ Premium Subscription</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-gray-600">Monthly subscription</p>
+              <p className="text-2xl font-bold text-gray-900">$9.99/month</p>
+            </div>
+            <div className="bg-blue-50 p-2 rounded-full">
+              <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-start space-x-3">
+            <svg className="w-5 h-5 text-green-500 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <div>
+              <p className="font-medium text-gray-900">Multiple Surf Spots</p>
+              <p className="text-sm text-gray-600">Access forecasts for all your favorite spots</p>
+            </div>
+          </div>
+          <div className="flex items-start space-x-3">
+            <svg className="w-5 h-5 text-green-500 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <div>
+              <p className="font-medium text-gray-900">Advanced Wave Analysis</p>
+              <p className="text-sm text-gray-600">Detailed wave conditions and forecasts</p>
+            </div>
+          </div>
+          <div className="flex items-start space-x-3">
+            <svg className="w-5 h-5 text-green-500 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <div>
+              <p className="font-medium text-gray-900">Personalized Recommendations</p>
+              <p className="text-sm text-gray-600">Get spot recommendations based on your preferences</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-gray-600">Total</p>
+            <p className="text-xl font-bold text-gray-900">$9.99/month</p>
+          </div>
+          <p className="text-sm text-gray-500 mb-6">
+            Cancel anytime. Your subscription will automatically renew each month.
+          </p>
+        </div>
       </div>
+
+      {error && (
+        <div className="bg-red-50 p-4 rounded-lg">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
       <div className="flex justify-between">
         <button
           type="button"
-          onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+          onClick={handleCancel}
+          className="px-6 py-3 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={processing}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          className="px-6 py-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50"
         >
-          {processing ? 'Processing...' : 'Continue'}
+          {processing ? 'Processing...' : 'Continue to Payment'}
         </button>
       </div>
     </form>
@@ -117,6 +261,18 @@ export default function MultiStepSignUpPaid({
 
   const handleNext = async () => {
     if (step === 'spot') {
+      if (selectedSpots.length === 0) {
+        setError('Please select at least one spot');
+        return;
+      }
+      setStep('surferType');
+    } else if (step === 'surferType') {
+      if (!surferPreferences.description || surferPreferences.boardTypes.length === 0) {
+        setError('Please complete your surfer profile');
+        return;
+      }
+      setStep('credentials');
+    } else if (step === 'credentials') {
       if (!email) {
         setError('Please enter your email');
         return;
@@ -133,13 +289,9 @@ export default function MultiStepSignUpPaid({
         setError('Password must be at least 6 characters');
         return;
       }
-      setStep('credentials');
-    } else if (step === 'credentials') {
-      setStep('payment');
-    } else if (step === 'payment') {
-      setStep('surferType');
-    } else if (step === 'surferType') {
       setStep('verify');
+    } else if (step === 'verify') {
+      setStep('payment');
     }
   };
 
@@ -171,16 +323,18 @@ export default function MultiStepSignUpPaid({
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Send email verification
+      if (!IS_DEVELOPMENT) {
       await sendEmailVerification(user);
+      }
 
       // Create user document in Firestore
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
-        premium: true, // Set premium status directly
         selectedSpots,
         surferPreferences,
         createdAt: new Date().toISOString(),
+        isPremium: false, // Will be updated after payment
+        emailVerified: IS_DEVELOPMENT, // Set to true in development
       });
 
       setVerificationSent(true);
@@ -204,8 +358,42 @@ export default function MultiStepSignUpPaid({
     <div className="w-full max-w-4xl mx-auto">
       {error && <p className="text-red-500 mb-4">{error}</p>}
       
+      {/* Add a progress indicator */}
+      <div className="mb-8">
+        <div className="flex justify-between items-center">
+          <div className="flex-1">
+            <div className="h-2 bg-gray-200 rounded-full">
+              <div 
+                className="h-2 bg-blue-500 rounded-full transition-all duration-300"
+                style={{ 
+                  width: step === 'spot' ? '20%' : 
+                         step === 'surferType' ? '40%' : 
+                         step === 'credentials' ? '60%' : 
+                         step === 'verify' ? '80%' : '100%' 
+                }}
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-between mt-2 text-sm text-gray-600">
+          <span>Choose Spots</span>
+          <span>Surfer Type</span>
+          <span>Account</span>
+          <span>Verify</span>
+          <span>Payment</span>
+        </div>
+      </div>
+      
       {step === 'spot' && (
         <div className="space-y-6">
+          <div className="bg-blue-50 p-4 rounded-lg mb-6">
+            <h3 className="text-lg font-semibold text-blue-800 mb-2">Kook+ Premium Sign Up</h3>
+            <p className="text-blue-700">
+              You're signing up for Kook+ Premium, which includes access to multiple surf spots and advanced features.
+              The subscription is $9.99/month and can be cancelled anytime.
+            </p>
+          </div>
+          
           <h3 className="text-2xl font-semibold mb-4">Choose Your Surf Spots</h3>
           <p className="text-gray-600 mb-4">
             As a Kook+ member, you can select multiple surf spots to receive forecasts for.
@@ -338,10 +526,10 @@ export default function MultiStepSignUpPaid({
 
       {step === 'surferType' && (
         <div className="space-y-8">
-          <div>
-            <h3 className="text-2xl font-semibold mb-2 text-center">Tell Us About Your Surfing</h3>
-            <p className="text-gray-600 text-center mb-6">
-              As a Kook+ member, our AI uses your surfing style and experience to provide personalized recommendations across all your selected spots. The more you tell us, the better we can match conditions to your abilities and preferences.
+          <div className="bg-blue-50 p-4 rounded-lg mb-6">
+            <h3 className="text-lg font-semibold text-blue-800 mb-2">Tell Us About Your Surfing</h3>
+            <p className="text-blue-700">
+              Help us personalize your experience. After this, you'll create your account and set up payment.
             </p>
           </div>
 
@@ -409,7 +597,13 @@ export default function MultiStepSignUpPaid({
 
       {step === 'credentials' && (
         <form onSubmit={handleSignUp} className="space-y-6">
-          <h3 className="text-2xl font-semibold mb-4">Create Your Account</h3>
+          <div className="bg-blue-50 p-4 rounded-lg mb-6">
+            <h3 className="text-lg font-semibold text-blue-800 mb-2">Create Your Account</h3>
+            <p className="text-blue-700">
+              Set up your account details. After this step, you'll be asked to set up your payment method for the Kook+ Premium subscription.
+            </p>
+          </div>
+
           <div className="space-y-4">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
@@ -460,54 +654,64 @@ export default function MultiStepSignUpPaid({
               ← Back
             </button>
             <button
-              type="submit"
+              type="button"
+              onClick={handleNext}
               className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600"
-              disabled={loading}
             >
-              {loading ? 'Signing up...' : 'Sign Up'}
+              Continue to Payment
             </button>
           </div>
         </form>
       )}
 
-      {step === 'payment' && (
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold text-gray-900">Payment Information</h2>
-          <PaymentForm
-            onSuccess={() => setStep('surferType')}
-            onCancel={() => setPaymentCancelled(true)}
-          />
-        </div>
-      )}
-
       {step === 'verify' && (
         <div className="text-center space-y-6">
-          <h3 className="text-2xl font-semibold">Verify Your Email</h3>
-          {paymentCancelled ? (
-            <div className="bg-yellow-50 p-4 rounded-lg mb-4">
-              <p className="text-yellow-700">
-                You've selected the free plan. You'll receive forecasts for {selectedSpots[0]} only.
+          <div className="bg-blue-50 p-4 rounded-lg mb-6">
+            <h3 className="text-lg font-semibold text-blue-800 mb-2">Verify Your Email</h3>
+            {IS_DEVELOPMENT ? (
+              <p className="text-blue-700">
+                Development Mode: Email verification is bypassed. You can proceed to payment.
               </p>
-            </div>
           ) : (
-            <p className="text-gray-600">
+              <p className="text-blue-700">
               We've sent a verification email to {email}. Please check your inbox and click the verification link.
+                After verifying your email, you'll be able to proceed with the payment.
             </p>
           )}
+          </div>
+
           <div className="flex flex-col gap-4">
-            <button
-              onClick={() => router.push('/dashboard-v2')}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-            >
-              Go to Dashboard
-            </button>
             <button
               onClick={() => setStep('credentials')}
               className="text-blue-500 hover:text-blue-600"
             >
               ← Back
             </button>
+            <button
+              onClick={() => setStep('payment')}
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+            >
+              {IS_DEVELOPMENT ? 'Continue to Payment' : 'I have verified my email'}
+            </button>
           </div>
+        </div>
+      )}
+
+      {step === 'payment' && (
+        <div className="space-y-6">
+          <div className="bg-blue-50 p-4 rounded-lg mb-6">
+            <h3 className="text-lg font-semibold text-blue-800 mb-2">Set Up Your Payment</h3>
+            <p className="text-blue-700">
+              Your account is verified! Now, let's set up your payment method for the Kook+ Premium subscription.
+            </p>
+          </div>
+          
+          <PaymentForm
+            onSuccess={() => router.push('/dashboard-v2')}
+            onCancel={() => setPaymentCancelled(true)}
+            email={email}
+            password={password}
+          />
         </div>
       )}
     </div>

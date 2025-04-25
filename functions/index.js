@@ -9,6 +9,7 @@ const OpenAI = require('openai');
 const functions = require('firebase-functions');
 const fetch = require('node-fetch');
 const xml2js = require('xml2js');
+const Stripe = require('stripe');
 
 // Define secrets
 const sendgridApiKey = defineSecret('SENDGRID_API_KEY');
@@ -16,6 +17,7 @@ const sendgridFromEmail = defineSecret('SENDGRID_FROM_EMAIL');
 const sendgridTemplateId = defineSecret('SENDGRID_TEMPLATE_ID');
 const sendgridPremiumTemplateId = defineSecret('SENDGRID_PREMIUM_TEMPLATE_ID');
 const openaiApiKey = defineSecret('OPENAI_API_KEY');
+const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
 
 // Initialize Express app
 const app = express();
@@ -25,7 +27,71 @@ app.use(cors({origin: true}));
 app.use(express.json());
 
 // Initialize Firebase Admin
-admin.initializeApp();
+admin.initializeApp({
+  projectId: 'kookcast-f176d'
+});
+
+// Initialize Stripe
+let stripe;
+const initializeStripe = () => {
+  if (!stripe) {
+    stripe = new Stripe(stripeSecretKey.value(), {
+      apiVersion: '2023-10-16',
+    });
+  }
+  return stripe;
+};
+
+// Create customer portal session
+exports.createPortalSession = onRequest({
+  secrets: [stripeSecretKey],
+  cors: true
+}, async (req, res) => {
+  try {
+    const { returnUrl } = req.body;
+    
+    if (!returnUrl) {
+      return res.status(400).json({
+        error: 'Missing required field: returnUrl'
+      });
+    }
+
+    // Get the user's customer ID from Firestore
+    const userDoc = await admin.firestore()
+      .collection('users')
+      .doc(req.auth.uid)
+      .get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    if (!userData.stripeCustomerId) {
+      return res.status(400).json({
+        error: 'User has no associated Stripe customer'
+      });
+    }
+
+    // Initialize Stripe and create a customer portal session
+    const stripeInstance = initializeStripe();
+    const session = await stripeInstance.billingPortal.sessions.create({
+      customer: userData.stripeCustomerId,
+      return_url: returnUrl,
+    });
+
+    return res.json({
+      url: session.url
+    });
+  } catch (error) {
+    console.error('Error creating Stripe customer portal session:', error);
+    return res.status(500).json({
+      error: error.message
+    });
+  }
+});
 
 // Configuration constants
 const CONFIG = {

@@ -8,7 +8,14 @@
  */
 
 import {onRequest} from "firebase-functions/v2/https";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
+import Stripe from 'stripe';
+
+// Initialize Stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
 
 // Start writing functions
 // https://firebase.google.com/docs/functions/typescript

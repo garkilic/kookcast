@@ -1,14 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { auth } from '@/lib/firebase';
+import { auth, getAuth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, sendEmailVerification, deleteUser } from 'firebase/auth';
-import { doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, deleteDoc, updateDoc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import SurfDiaryList from '@/components/SurfDiaryList';
 import Link from 'next/link';
+import { addDoc } from "firebase/firestore";
 
 interface UserData {
   email: string;
@@ -48,6 +49,7 @@ export default function DashboardV2() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showHomeBreakPicker, setShowHomeBreakPicker] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -259,6 +261,33 @@ export default function DashboardV2() {
       setError(error.message);
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  const openCustomerPortal = async () => {
+    try {
+      setIsOpeningPortal(true);
+      const user = getAuth().currentUser;
+      if (!user) {
+        setError('You must be logged in to access the customer portal');
+        return;
+      }
+
+      const ref = collection(db, "users", user.uid, "portal_sessions");
+      const docRef = await addDoc(ref, {
+        return_url: window.location.origin,
+      });
+
+      onSnapshot(docRef, (snap) => {
+        const data = snap.data();
+        if (data?.url) {
+          window.location.assign(data.url);
+        }
+      });
+    } catch (error: any) {
+      setError(error.message);
+    } finally {
+      setIsOpeningPortal(false);
     }
   };
 
@@ -486,11 +515,11 @@ export default function DashboardV2() {
                   </Link>
                   {userData?.premium && (
                     <button
-                      onClick={handleCancelSubscription}
-                      disabled={isCancelling}
-                      className="w-full px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 text-sm sm:text-base"
+                      onClick={openCustomerPortal}
+                      disabled={isOpeningPortal}
+                      className="w-full px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors disabled:opacity-50 text-sm sm:text-base"
                     >
-                      {isCancelling ? 'Cancelling...' : 'Cancel Kook+ Subscription'}
+                      {isOpeningPortal ? 'Opening Portal...' : 'Manage Kook+ Subscription'}
                     </button>
                   )}
                 </div>
