@@ -13,7 +13,8 @@
         "firebase-debug.log",
         "firebase-debug.*.log",
         "*.local"
-      ]
+      ],
+      "runtime": "nodejs20"
     }
   ],
   "emulators": {
@@ -30,5 +31,8 @@
       "enabled": true
     },
     "singleProjectMode": true
+  },
+  "extensions": {
+    "firestore-stripe-subscriptions-9aa1": "stripe/firestore-stripe-subscriptions@0.1.15"
   }
 }

@@ -1756,6 +1756,73 @@ exports.sendPremiumSurfReports = onSchedule({
   }
 });
 
+// Migration function to standardize surf locations field name
+exports.migrateSurfLocations = functions.https.onRequest(async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const usersSnapshot = await db.collection('users').get();
+    
+    let migratedCount = 0;
+    let errorCount = 0;
+    
+    for (const userDoc of usersSnapshot.docs) {
+      try {
+        const userData = userDoc.data();
+        
+        // Skip if user already has surfLocations
+        if (userData.surfLocations) {
+          continue;
+        }
+        
+        // If user has selectedSpots, migrate to surfLocations
+        if (userData.selectedSpots) {
+          await userDoc.ref.update({
+            surfLocations: userData.selectedSpots,
+            updatedAt: new Date().toISOString()
+          });
+          migratedCount++;
+        }
+      } catch (error) {
+        console.error(`Error migrating user ${userDoc.id}:`, error);
+        errorCount++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      migratedCount,
+      errorCount,
+      message: `Migration complete. Migrated ${migratedCount} users, ${errorCount} errors.`
+    });
+  } catch (error) {
+    console.error('Migration error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Sync premium status when subscription changes
+exports.syncPremiumStatus = functions.firestore
+  .onDocumentWritten('customers/{userId}/subscriptions/{subscriptionId}', async (event) => {
+    const { userId } = event.params;
+    const subscription = event.data?.after?.data();
+
+    if (!subscription) return;
+
+    const isActive = subscription.status === 'active' && subscription.cancel_at_period_end === false;
+
+    const userRef = admin.firestore().collection('users').doc(userId);
+
+    await userRef.update({
+      premium: isActive,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`User ${userId} premium status set to`, isActive);
+  });
+
 // Start the server if we're not in Firebase Functions
 if (process.env.NODE_ENV === 'development') {
   const port = process.env.PORT || 8080;

@@ -39,5 +39,25 @@ service cloud.firestore {
                     request.resource.data.rating <= 5;
       }
     }
+    
+    // Customer and subscription rules
+    match /customers/{userId} {
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow write: if isAuthenticated() && isOwner(userId);
+      
+      match /subscriptions/{subscriptionId} {
+        allow read: if isAuthenticated() && isOwner(userId);
+        allow write: if isAuthenticated() && isOwner(userId);
+      }
+      
+      match /checkout_sessions/{sessionId} {
+        allow read: if isAuthenticated() && isOwner(userId);
+        allow create: if isAuthenticated() && isOwner(userId);
+      }
+    }
+    
+    match /surfSpots/{spotId} {
+      allow read;
+    }
   }
 }

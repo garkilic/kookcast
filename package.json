@@ -16,6 +16,7 @@
     "@firebase/auth": "^1.10.0",
     "@firebase/firestore": "^4.7.10",
     "@sendgrid/mail": "^8.1.5",
+    "@stripe/stripe-js": "^7.2.0",
     "@types/dotenv": "^6.1.1",
     "@types/firebase": "^2.4.32",
     "date-fns": "^4.1.0",
