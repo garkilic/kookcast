@@ -94,9 +94,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      if (!IS_DEVELOPMENT) {
-        await sendEmailVerification(user);
-      }
+      await sendEmailVerification(user);
 
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
@@ -104,7 +102,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
         surfLocations: selectedSpot ? [selectedSpot] : [],
         surferDescription: surferPreferences.description,
         boardTypes: surferPreferences.boardTypes,
-        emailVerified: IS_DEVELOPMENT,
+        emailVerified: false,
         isPremium: false,
       });
 
@@ -116,25 +114,6 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
       } catch (notificationError) {
         console.error('Error sending signup notification:', notificationError);
       }
-
-      // Schedule sync for 2 minutes after signup
-      setTimeout(async () => {
-        try {
-          const response = await fetch('https://api-ovbmv2dgfq-uc.a.run.app/sync-email-verification', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ uid: user.uid }),
-          });
-
-          if (!response.ok) {
-            console.error('Failed to sync email verification status:', await response.text());
-          }
-        } catch (syncError) {
-          console.error('Error syncing email verification status:', syncError);
-        }
-      }, 120000); // 2 minutes in milliseconds
 
       setVerificationSent(true);
       setStep('verify');
@@ -351,7 +330,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
           <h3 className="text-xl sm:text-2xl font-semibold mb-4 text-center">Create Your Account</h3>
           <div className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                 Email
               </label>
               <input
@@ -359,12 +338,12 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
                 id="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                className="w-full px-4 py-3 rounded-lg border border-secondary-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
               />
             </div>
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                 Password
               </label>
               <input
@@ -372,12 +351,12 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                className="w-full px-4 py-3 rounded-lg border border-secondary-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
               />
             </div>
             <div>
-              <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-2">
                 Confirm Password
               </label>
               <input
@@ -385,25 +364,33 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
                 id="confirm-password"
                 value={confirmPassword}
                 onChange={(e) => setPasswordConfirm(e.target.value)}
-                className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                className="w-full px-4 py-3 rounded-lg border border-secondary-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
               />
             </div>
           </div>
+
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h4 className="text-sm font-medium text-blue-800 mb-2">What's Next?</h4>
+            <p className="text-sm text-blue-700 mb-3">
+              After creating your account, you'll receive a verification email. Please check your inbox and verify your email to access all features.
+            </p>
+          </div>
+
           <div className="flex justify-between">
             <button
               type="button"
               onClick={() => setStep('surferType')}
-              className="text-blue-500 hover:text-blue-600 text-sm sm:text-base"
+              className="text-primary-600 hover:text-primary-700 text-sm font-medium"
             >
               ← Back
             </button>
             <button
               type="submit"
-              className="bg-blue-500 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg hover:bg-blue-600 text-sm sm:text-base"
+              className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-opacity-50 disabled:opacity-50 transition-colors"
               disabled={loading}
             >
-              {loading ? 'Signing up...' : 'Sign Up'}
+              {loading ? 'Signing up...' : 'Create Account'}
             </button>
           </div>
         </form>
@@ -412,26 +399,19 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
       {step === 'verify' && (
         <div className="text-center space-y-6">
           <h3 className="text-xl sm:text-2xl font-semibold">Verify Your Email</h3>
-          {IS_DEVELOPMENT ? (
-            <p className="text-sm sm:text-base text-gray-600">
-              Development Mode: Email verification is bypassed. You can proceed to the dashboard.
-            </p>
-          ) : (
-            <p className="text-sm sm:text-base text-gray-600">
-              We've sent a verification email to {email}. Please check your inbox and click the verification link.
-            </p>
-          )}
+          <p className="text-sm sm:text-base text-gray-600">
+            We've sent a verification email to {email}. Please check your inbox and click the verification link.
+          </p>
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-4 py-3 text-sm max-w-md mx-auto">
+            <strong>Note:</strong> You will only receive surf forecast emails after verifying your email address.
+          </div>
           <div className="flex flex-col gap-4">
-            {IS_DEVELOPMENT && (
-              <button
-                onClick={() => {
-                  router.push('/dashboard-v2');
-                }}
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 text-sm sm:text-base"
-              >
-                Go to Dashboard
-              </button>
-            )}
+            <button
+              onClick={() => router.push('/dashboard-v2')}
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+            >
+              Go to Dashboard
+            </button>
             <button
               onClick={() => setStep('credentials')}
               className="text-blue-500 hover:text-blue-600 text-sm sm:text-base"
