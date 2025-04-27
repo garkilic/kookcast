@@ -10,7 +10,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, collection, doc as firestoreDoc, addDoc, onSnapshot } from 'firebase/firestore';
 
-const stripePromise = loadStripe('pk_test_51REGmDCKpNGLkmsGVt0NT8thUxrD9MKt11KqoSJzuZNUgz1lcE7lxye6vV37my8yV36JA6SmDBLmwXZaSik5fhNc00Nb10iqES');
+const stripePromise = loadStripe('pk_live_51REGlUCGaqxvNayPIuU8WkUXykJ6ZFkLONHBAayvUt5jA3QHmZaMj8blDWAbBaPi2v7fIUfSnnbtN64nFNbxsR3I00S9ZiP4qS');
 
 type Step = 'spot' | 'credentials' | 'payment' | 'verify' | 'surferType';
 
@@ -51,7 +51,7 @@ const PaymentForm = ({ onSuccess, onCancel }: {
       console.log('Creating checkout session for user:', user.uid);
       const checkoutRef = collection(firestoreDoc(db, 'customers', user.uid), 'checkout_sessions');
       const docRef = await addDoc(checkoutRef, {
-        price: 'price_1RHZdvCKpNGLkmsGfABymF8f',
+        price: 'price_1RIXivCGaqxvNayPFmYvrxxU',
         success_url: window.location.origin + '/dashboard-v2',
         cancel_url: window.location.origin + '/dashboard-v2',
         mode: 'subscription',
