@@ -97,11 +97,15 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
         return;
       }
 
+      // Create user with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
+      // Send email verification immediately
       await sendEmailVerification(user);
+      setVerificationSent(true);
 
+      // Create user document in Firestore
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         createdAt: new Date().toISOString(),
@@ -123,7 +127,6 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
         console.error('Error sending signup notification:', notificationError);
       }
 
-      setVerificationSent(true);
       setStep('verify');
     } catch (error: any) {
       setError(error.message);
