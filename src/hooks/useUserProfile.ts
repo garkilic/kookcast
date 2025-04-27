@@ -6,30 +6,29 @@ import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 interface UserData {
   id: string;
   email: string;
-  displayName: string;
-  photoURL: string;
   surfLocations: string[];
-  updatedAt: string;
-  surferType: string;
+  surferPreferences: {
+    description: string;
+    boardTypes: string[];
+  };
   emailVerified: boolean;
   premium: boolean;
-  homeBreak?: string;
-  boardTypes: string[];
   createdAt: string;
+  updatedAt: string;
 }
 
 const defaultUserData: UserData = {
   id: '',
   email: '',
-  displayName: '',
-  photoURL: '',
   surfLocations: [],
-  updatedAt: new Date().toISOString(),
-  surferType: 'intermediate',
+  surferPreferences: {
+    description: '',
+    boardTypes: []
+  },
   emailVerified: false,
   premium: false,
-  boardTypes: [],
-  createdAt: new Date().toISOString()
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
 };
 
 export default function useUserProfile() {
@@ -68,16 +67,15 @@ export default function useUserProfile() {
           setUserData({
             id: user.uid,
             email: user.email || '',
-            displayName: data.displayName || '',
-            photoURL: data.photoURL || '',
             surfLocations: data.surfLocations || [],
-            updatedAt: data.updatedAt || new Date().toISOString(),
-            surferType: data.surferType || 'intermediate',
+            surferPreferences: {
+              description: data.surferPreferences?.description || '',
+              boardTypes: data.surferPreferences?.boardTypes || []
+            },
             emailVerified: data.emailVerified || false,
             premium: data.premium || false,
-            homeBreak: data.homeBreak,
-            boardTypes: data.boardTypes || [],
-            createdAt: data.createdAt || new Date().toISOString()
+            createdAt: data.createdAt || new Date().toISOString(),
+            updatedAt: data.updatedAt || new Date().toISOString()
           });
 
           // Fetch surf spots only once if not already fetched
