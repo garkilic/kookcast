@@ -276,6 +276,10 @@ export default function MultiStepSignUpPaid({
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
+      // Send email verification immediately
+      await sendEmailVerification(user);
+      setVerificationSent(true);
+
       // Create user document in Firestore (premium will be set after payment)
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
@@ -285,7 +289,7 @@ export default function MultiStepSignUpPaid({
         createdAt: new Date().toISOString(),
       });
 
-      // Move to payment step (do not send verification yet)
+      // Move to payment step
       setStep('payment');
     } catch (error: any) {
       setError(error.message);
@@ -606,6 +610,13 @@ export default function MultiStepSignUpPaid({
       {step === 'payment' && (
         <div className="space-y-4">
           <h2 className="text-2xl font-bold text-gray-900">Payment Information</h2>
+          {verificationSent && (
+            <div className="bg-blue-50 p-4 rounded-lg mb-4">
+              <p className="text-blue-700">
+                We've sent a verification email to {email}. Please check your inbox and click the verification link to ensure you receive your surf forecasts.
+              </p>
+            </div>
+          )}
           <PaymentForm
             onSuccess={async () => {
               try {
@@ -619,9 +630,6 @@ export default function MultiStepSignUpPaid({
                   { premium: true },
                   { merge: true }
                 );
-                // Send email verification
-                await sendEmailVerification(user);
-                setVerificationSent(true);
                 setStep('verify');
               } catch (err: any) {
                 setError(err.message || 'Error during post-payment process');
