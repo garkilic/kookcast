@@ -53,8 +53,9 @@ const PaymentForm = ({ onSuccess, onCancel }: {
       const docRef = await addDoc(checkoutRef, {
         price: 'price_1RHZdvCKpNGLkmsGfABymF8f',
         success_url: window.location.origin + '/dashboard-v2',
-        cancel_url: window.location.origin + '/cancel',
-        mode: 'subscription'
+        cancel_url: window.location.origin + '/dashboard-v2',
+        mode: 'subscription',
+        redirect_mode: 'redirect'
       });
 
       console.log('Checkout session created, waiting for URL...');
@@ -71,9 +72,9 @@ const PaymentForm = ({ onSuccess, onCancel }: {
 
         if (data?.url) {
           console.log('Redirecting to Stripe checkout...');
-        const stripe = await stripePromise;
+          const stripe = await stripePromise;
           if (stripe) {
-          window.location.assign(data.url);
+            window.location.assign(data.url);
           } else {
             console.error('Stripe not initialized');
             setError('Payment system not available');
@@ -90,15 +91,55 @@ const PaymentForm = ({ onSuccess, onCancel }: {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="bg-white p-4 rounded-lg shadow">
-        <p className="text-gray-600">Premium membership will be activated after signup.</p>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Kook+ Membership</h3>
+            <span className="text-2xl font-bold text-blue-600">$5<span className="text-sm font-normal text-gray-500">/month</span></span>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="flex items-start">
+              <svg className="h-5 w-5 text-green-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="ml-3 text-gray-600">Track multiple surf spots</span>
+            </div>
+            <div className="flex items-start">
+              <svg className="h-5 w-5 text-green-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="ml-3 text-gray-600">Personalized surf recommendations</span>
+            </div>
+            <div className="flex items-start">
+              <svg className="h-5 w-5 text-green-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="ml-3 text-gray-600">Advanced surf forecasting</span>
+            </div>
+            <div className="flex items-start">
+              <svg className="h-5 w-5 text-green-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="ml-3 text-gray-600">Cross-spot condition analysis</span>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-gray-200">
+            <p className="text-sm text-gray-500">
+              Your membership will be activated immediately after payment. You can cancel anytime.
+            </p>
+          </div>
+        </div>
       </div>
+
       {error && (
         <div className="bg-red-50 p-4 rounded-lg">
           <p className="text-red-600">{error}</p>
         </div>
       )}
+
       <div className="flex justify-between">
         <button
           type="button"
@@ -110,9 +151,9 @@ const PaymentForm = ({ onSuccess, onCancel }: {
         <button
           type="submit"
           disabled={processing}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          className="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
         >
-          {processing ? 'Processing...' : 'Continue'}
+          {processing ? 'Processing...' : 'Continue to Payment'}
         </button>
       </div>
     </form>
@@ -467,11 +508,15 @@ export default function MultiStepSignUpPaid({
       )}
 
       {step === 'credentials' && (
-        <form onSubmit={handleSignUp} className="space-y-6">
-          <h3 className="text-2xl font-semibold mb-4">Create Your Account</h3>
-          <div className="space-y-4">
+        <form onSubmit={handleSignUp} className="space-y-8 bg-white p-8 rounded-xl shadow-md border border-gray-100 max-w-lg mx-auto">
+          <div className="mb-4 text-center">
+            <h3 className="text-2xl font-bold mb-1">Create Your Account</h3>
+            <p className="text-gray-500 text-base">Start your surf journey with KookCast</p>
+          </div>
+          <div className="space-y-5">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12H8m8 0a4 4 0 11-8 0 4 4 0 018 0zm0 0v1a4 4 0 01-8 0v-1" /></svg>
                 Email
               </label>
               <input
@@ -479,12 +524,14 @@ export default function MultiStepSignUpPaid({
                 id="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                 required
+                autoComplete="email"
               />
             </div>
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c1.104 0 2-.896 2-2s-.896-2-2-2-2 .896-2 2 .896 2 2 2zm6 2v-2a6 6 0 10-12 0v2a2 2 0 00-2 2v4a2 2 0 002 2h12a2 2 0 002-2v-4a2 2 0 00-2-2z" /></svg>
                 Password
               </label>
               <input
@@ -492,12 +539,15 @@ export default function MultiStepSignUpPaid({
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                 required
+                autoComplete="new-password"
               />
+              <p className="text-xs text-gray-400 mt-1 ml-1">Minimum 6 characters</p>
             </div>
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c1.104 0 2-.896 2-2s-.896-2-2-2-2 .896-2 2 .896 2 2 2zm6 2v-2a6 6 0 10-12 0v2a2 2 0 00-2 2v4a2 2 0 002 2h12a2 2 0 002-2v-4a2 2 0 00-2-2z" /></svg>
                 Confirm Password
               </label>
               <input
@@ -505,25 +555,31 @@ export default function MultiStepSignUpPaid({
                 id="confirmPassword"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                 required
+                autoComplete="new-password"
               />
             </div>
           </div>
-          <div className="flex justify-between">
+          <div className="flex flex-col gap-2 mt-2">
+            <span className="text-xs text-gray-400 text-center">We'll never share your email.</span>
+          </div>
+          <div className="flex justify-between items-center pt-2">
             <button
               type="button"
               onClick={() => setStep('surferType')}
-              className="text-blue-500 hover:text-blue-600"
+              className="text-blue-500 hover:text-blue-600 text-sm font-medium"
             >
               ← Back
             </button>
             <button
               type="submit"
-              className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600"
+              className="bg-blue-600 text-white px-8 py-3 rounded-lg shadow hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 transition-colors text-base font-semibold min-w-[120px]"
               disabled={loading}
             >
-              {loading ? 'Signing up...' : 'Sign Up'}
+              {loading ? (
+                <span className="flex items-center justify-center"><svg className="animate-spin h-5 w-5 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>Signing up...</span>
+              ) : 'Sign Up'}
             </button>
           </div>
         </form>
@@ -572,6 +628,9 @@ export default function MultiStepSignUpPaid({
               We've sent a verification email to {email}. Please check your inbox and click the verification link.
             </p>
           )}
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-4 py-3 text-sm max-w-md mx-auto">
+            <strong>Note:</strong> You will only receive surf forecast emails after verifying your email address.
+          </div>
           <div className="flex flex-col gap-4">
             <button
               onClick={() => router.push('/dashboard-v2')}

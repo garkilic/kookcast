@@ -25,7 +25,8 @@ export default function Home() {
   const [surfPreference, setSurfPreference] = useState('');
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(''); // For sign-up
+  const [signInEmail, setSignInEmail] = useState(''); // For sign-in modal
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -167,7 +168,7 @@ export default function Home() {
       // Sign in with Firebase
       const userCredential = await signInWithEmailAndPassword(
         auth,
-        email.trim(),
+        signInEmail.trim(),
         password
       );
 
@@ -177,7 +178,7 @@ export default function Home() {
 
       // Close the modal and clear form
       setIsSignInModalOpen(false);
-      setEmail('');
+      setSignInEmail('');
       setPassword('');
       
       // Use Next.js router for navigation to dashboard-v2
@@ -261,7 +262,7 @@ export default function Home() {
               <span className="text-primary-600">Personalized Just for You</span>
             </h1>
             <p className="mt-4 sm:mt-6 text-lg sm:text-xl text-secondary-600 max-w-2xl mx-auto">
-              Get daily surf forecasts tailored to your skill level and preferences, delivered straight to your inbox. No apps to download, no complicated charts - just clear, actionable advice from your AI surf coach.
+              Daily AI-powered surf forecasts, personalized for you—no apps, no charts, just clear advice in your inbox.
             </p>
             <div className="mt-8 flex flex-col items-center gap-y-4">
               <div className="flex flex-col items-center gap-4 w-full max-w-md">
@@ -281,9 +282,6 @@ export default function Home() {
                     Start Free
                   </button>
                 </form>
-                <div className="flex flex-col items-center gap-2 text-sm text-secondary-500">
-                  <p className="text-center">Free forever • No app needed • AI-powered personalization</p>
-                </div>
               </div>
             </div>
             
@@ -657,8 +655,8 @@ export default function Home() {
                 Most Popular
               </div>
               <h3 className="text-2xl font-bold text-secondary-900">Kook+</h3>
-              <p className="mt-4 text-secondary-600">Advanced AI personalization</p>
-              <div className="mt-2 text-2xl font-bold text-secondary-900">$10/month</div>
+              <p className="mt-4 text-secondary-600">Everything in Free, plus:</p>
+              <div className="mt-2 text-2xl font-bold text-secondary-900">$5<span className="text-lg font-normal text-secondary-500">/month</span></div>
               <ul className="mt-8 space-y-4">
                 <li className="flex items-center">
                   <span className="text-primary-500 mr-2">🎯</span>
@@ -666,23 +664,19 @@ export default function Home() {
                 </li>
                 <li className="flex items-center">
                   <span className="text-primary-500 mr-2">🤖</span>
-                  Daily "Spot of the Day" AI recommendations
+                  AI-powered surf forecasts for your spots
                 </li>
                 <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">🌊</span>
-                  50% of your subscription helps make surfing accessible
+                  <span className="text-primary-500 mr-2">📧</span>
+                  Daily email delivery (5:00 AM)
                 </li>
                 <li className="flex items-center">
                   <span className="text-primary-500 mr-2">📊</span>
-                  Advanced swell and wind pattern analysis
-                </li>
-                <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">⏰</span>
-                  Perfect timing alerts for your skill level
+                  Advanced swell and wind pattern insights
                 </li>
                 <li className="flex items-center">
                   <span className="text-primary-500 mr-2">✨</span>
-                  Help make surfing more accessible
+                  Access to new features first
                 </li>
               </ul>
               <button 
@@ -708,10 +702,6 @@ export default function Home() {
             </div>
             <div className="mt-6 flex flex-col sm:flex-row justify-center items-center gap-4 sm:gap-8 text-secondary-500">
               <div className="flex items-center">
-                <span className="mr-2">⭐</span>
-                <span className="text-sm">5.0/5 from 200+ surfers</span>
-              </div>
-              <div className="flex items-center">
                 <span className="mr-2">🔒</span>
                 <span className="text-sm">Cancel anytime</span>
               </div>
@@ -720,15 +710,8 @@ export default function Home() {
                 <span className="text-sm">Works on all devices</span>
               </div>
             </div>
-            <p className="mt-6 text-sm text-secondary-500">
-              Built by surfers. Runs on weather data, not BS.
-            </p>
-            <p className="mt-4 text-sm text-secondary-500 text-center max-w-md">
-              Can't afford Kook+? No problem! Email me at{' '}
-              <a href="mailto:griffin@kook-cast.com" className="text-primary-600 hover:text-primary-700 whitespace-nowrap">
-                griffin@kook-cast.com
-              </a>
-              {' '}and I'll hook you up with a free premium account. Surfing should be accessible to everyone.
+            <p className="mt-4 text-sm text-secondary-500 text-center">
+              Can't afford Kook+? No problem! Email me at <a href="mailto:griffin@kook-cast.com" className="text-primary-600 hover:text-primary-700">griffin@kook-cast.com</a> and I'll hook you up with a free premium account. Surfing should be accessible to everyone.
             </p>
           </div>
         </footer>
@@ -943,7 +926,10 @@ export default function Home() {
           <div className="bg-white rounded-xl max-w-md w-full">
             <div className="p-6 border-b border-secondary-200">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold text-secondary-900">Sign In</h3>
+                <div>
+                  <h3 className="text-xl font-semibold text-secondary-900 mb-1">Sign In</h3>
+                  <p className="text-gray-500 text-base">Welcome back to KookCast</p>
+                </div>
                 <button 
                   onClick={() => setIsSignInModalOpen(false)}
                   className="text-secondary-400 hover:text-secondary-500"
@@ -952,29 +938,31 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            
             <div className="p-6">
               {error && (
                 <div className="bg-red-50 p-4 rounded-lg mb-4">
                   <p className="text-red-800">{error}</p>
                 </div>
               )}
-              <form onSubmit={handleSignIn} className="space-y-4">
+              <form onSubmit={handleSignIn} className="space-y-6">
                 <div>
-                  <label htmlFor="email" className="block text-gray-700 mb-2">
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12H8m8 0a4 4 0 11-8 0 4 4 0 018 0zm0 0v1a4 4 0 01-8 0v-1" /></svg>
                     Email
                   </label>
                   <input
                     type="email"
                     id="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={signInEmail}
+                    onChange={(e) => setSignInEmail(e.target.value)}
+                    className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                     required
+                    autoComplete="email"
                   />
                 </div>
                 <div>
-                  <label htmlFor="password" className="block text-gray-700 mb-2">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                    <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c1.104 0 2-.896 2-2s-.896-2-2-2-2 .896-2 2 .896 2 2 2zm6 2v-2a6 6 0 10-12 0v2a2 2 0 00-2 2v4a2 2 0 002 2h12a2 2 0 002-2v-4a2 2 0 00-2-2z" /></svg>
                     Password
                   </label>
                   <input
@@ -982,16 +970,22 @@ export default function Home() {
                     id="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                     required
+                    autoComplete="current-password"
                   />
+                </div>
+                <div className="flex flex-col gap-2 mt-2">
+                  <span className="text-xs text-gray-400 text-center">We'll never share your email.</span>
                 </div>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50"
+                  className="w-full bg-blue-600 text-white py-3 px-8 rounded-lg shadow hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 transition-colors text-base font-semibold min-w-[120px]"
                 >
-                  {loading ? 'Signing in...' : 'Sign In'}
+                  {loading ? (
+                    <span className="flex items-center justify-center"><svg className="animate-spin h-5 w-5 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>Signing in...</span>
+                  ) : 'Sign In'}
                 </button>
               </form>
             </div>
@@ -1004,6 +998,7 @@ export default function Home() {
         isOpen={isSignUpModalOpen}
         onClose={() => setIsSignUpModalOpen(false)}
         title="Join KookCast"
+        disableClickOutside={true}
       >
         <MultiStepSignUp initialEmail={email} />
       </Modal>

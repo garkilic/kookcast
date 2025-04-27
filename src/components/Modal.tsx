@@ -5,14 +5,15 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   title?: string;
+  disableClickOutside?: boolean;
 }
 
-export default function Modal({ isOpen, onClose, children, title }: ModalProps) {
+export default function Modal({ isOpen, onClose, children, title, disableClickOutside = false }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+      if (!disableClickOutside && modalRef.current && !modalRef.current.contains(event.target as Node)) {
         onClose();
       }
     };
@@ -26,7 +27,7 @@ export default function Modal({ isOpen, onClose, children, title }: ModalProps) 
       document.removeEventListener('mousedown', handleClickOutside);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, disableClickOutside]);
 
   if (!isOpen) return null;
 
