@@ -174,16 +174,35 @@ app.post('/send', async (req, res) => {
                 using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
                 You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
                 
-                Consider the user's surfboards and recent surf sessions when making recommendations:
+                Consider the user's profile and history:
+                Surfing Style: ${req.body.userData?.surferType || 'intermediate'}
+                Skill Level: ${req.body.userData?.skillLevel || 'intermediate'}
+                Preferred Conditions: ${req.body.userData?.preferredConditions?.join(', ') || 'none specified'}
+                Goals: ${req.body.userData?.goals?.join(', ') || 'none specified'}
+                
                 User's surfboards: ${req.body.userData?.userBoards || 'No boards available'}
+                
                 Recent surf sessions:
                 ${req.body.userData?.recentSessions || 'No recent sessions'}
+                
+                Last session details:
+                ${req.body.userData?.lastSession ? `
+                Date: ${req.body.userData.lastSession.date}
+                Rating: ${req.body.userData.lastSession.rating}
+                Board Used: ${req.body.userData.lastSession.boardUsed}
+                Wave Count: ${req.body.userData.lastSession.waveCount}
+                Session Duration: ${req.body.userData.lastSession.sessionDuration} minutes
+                ` : 'No last session data'}
+                
+                Average wave count: ${req.body.userData?.averageWaveCount || 0} waves per session
                 
                 Generate a surf report for ${formattedLocation} on ${formattedDate}. 
                 Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
                 
                 For skill matching, consider:
-                - The user's surf type (${req.body.surferType})
+                - The user's surfing style and skill level
+                - Their preferred conditions and goals
+                - Recent session performance and board usage
                 - Current wave conditions
                 - Wind conditions
                 - Tide conditions
@@ -213,8 +232,8 @@ app.post('/send', async (req, res) => {
                 - tip1: Specific tip based on conditions and skill level
                 - tip2: Specific tip based on conditions and skill level
                 - tip3: Specific tip based on conditions and skill level
-                - daily_challenge: One specific, achievable challenge
-                - skill_focus: One specific skill to focus on
+                - daily_challenge: One specific, achievable challenge based on their goals and recent performance
+                - skill_focus: One specific skill to focus on based on their recent sessions
                 
                 Keep all descriptions brief and to the point. Use imperial measurements:
                 - Temperature in Fahrenheit (°F)
@@ -288,7 +307,10 @@ app.post('/send', async (req, res) => {
           // Send email
           await sgMail.send({
             to: req.body.to,
-            from: fromEmail,
+            from: {
+              email: fromEmail,
+              name: "KookCast"
+            },
             subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
             templateId: templateId,
             dynamicTemplateData: templateData
@@ -315,7 +337,10 @@ app.post('/send', async (req, res) => {
     } else {
       msg = {
         to: req.body.to,
-        from: fromEmail,
+        from: {
+          email: fromEmail,
+          name: "KookCast"
+        },
         subject: `Go surf at ${surfReport.best_time} at ${formattedLocation}`,
         templateId: templateId,
         dynamicTemplateData: templateData
@@ -595,16 +620,28 @@ const SurfReportGenerator = {
           using phrases like "I've been watching the conditions" and "I think you'll love this spot today." 
           You're incredibly kind and supportive, always finding the positive in any conditions while being honest about challenges.
           
-          Consider the user's surfboards and recent surf sessions when making recommendations:
+          Consider the user's profile and history:
+          Surfing Style: ${userData?.surferType || 'intermediate'}
+          
           User's surfboards: ${userData?.userBoards || 'No boards available'}
+          
           Recent surf sessions:
           ${userData?.recentSessions || 'No recent sessions'}
+          
+          Last session details:
+          ${userData?.lastSession ? `
+          Date: ${userData.lastSession.date}
+          Rating: ${userData.lastSession.rating}
+          Had Fun: ${userData.lastSession.hadFun ? 'Yes' : 'No'}
+          Description: ${userData.lastSession.description || 'No description'}
+          ` : 'No last session data'}
           
           Generate a surf report for ${formattedLocation} on ${formattedDate}. 
           Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
           
           For skill matching, consider:
-          - The user's surf type (${userData?.surferType || 'intermediate'})
+          - The user's surfing style
+          - Recent session performance and enjoyment
           - Current wave conditions
           - Wind conditions
           - Tide conditions
@@ -634,8 +671,8 @@ const SurfReportGenerator = {
           - tip1: Specific tip based on conditions and skill level
           - tip2: Specific tip based on conditions and skill level
           - tip3: Specific tip based on conditions and skill level
-          - daily_challenge: One specific, achievable challenge
-          - skill_focus: One specific skill to focus on
+          - daily_challenge: One specific, achievable challenge based on their recent performance
+          - skill_focus: One specific skill to focus on based on their recent sessions
           
           Keep all descriptions brief and to the point. Use imperial measurements:
           - Temperature in Fahrenheit (°F)
@@ -911,7 +948,7 @@ async function getUserData(userId) {
     const userData = userDoc.data() || {};
     
     // Get user's surfboards with defaults
-    const boardTypes = Array.isArray(userData.boardTypes) ? userData.boardTypes : [];
+    const boardTypes = Array.isArray(userData.surferPreferences?.boardTypes) ? userData.surferPreferences.boardTypes : [];
     const boardLabels = {
       shortboard: 'Shortboard',
       longboard: 'Longboard',
@@ -919,7 +956,9 @@ async function getUserData(userId) {
       hybrid: 'Hybrid',
       funboard: 'Funboard',
       gun: 'Gun',
-      softtop: 'Soft Top'
+      softtop: 'Soft Top',
+      foamie: 'Soft-top/Foamie',
+      sup: 'SUP'
     };
     const formattedBoards = boardTypes.length > 0 
       ? boardTypes.map(board => boardLabels[board] || board).join(', ')
@@ -950,14 +989,20 @@ async function getUserData(userId) {
       recentEntries = [];
     }
 
+    // Get user's surfing style and preferences
+    const surferPreferences = userData.surferPreferences || {};
+    const surfingStyle = surferPreferences.description || 'intermediate';
+
     return {
       userBoards: formattedBoards,
       recentDiaryEntries: recentEntries,
-      surferType: userData.surferType || 'intermediate',
+      surferType: surfingStyle,
       surfLocations: Array.isArray(userData.surfLocations) ? userData.surfLocations : [],
       recentSessions: recentEntries.map(entry => 
         `- ${entry.date}: ${entry.rating} (${entry.hadFun ? 'had fun' : 'did not have fun'})${entry.description ? ` - ${entry.description}` : ''}`
-      ).join('\n')
+      ).join('\n'),
+      boardTypes: boardTypes,
+      lastSession: recentEntries[0] || null
     };
   } catch (error) {
     console.error('Error getting user data:', error);
@@ -966,7 +1011,9 @@ async function getUserData(userId) {
       recentDiaryEntries: [],
       surferType: 'intermediate',
       surfLocations: [],
-      recentSessions: ''
+      recentSessions: '',
+      boardTypes: [],
+      lastSession: null
     };
   }
 }
@@ -983,45 +1030,7 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
 
     // Get user's data from Firestore if not provided
     if (!userData) {
-      const userDoc = await admin.firestore().collection('users').doc(userId).get();
-      const userData = userDoc.data();
-      
-      // Get user's surfboards
-      const boardTypes = userData?.boardTypes || [];
-      const boardLabels = {
-        shortboard: 'Shortboard',
-        longboard: 'Longboard',
-        fish: 'Fish',
-        hybrid: 'Hybrid',
-        funboard: 'Funboard',
-        gun: 'Gun',
-        softtop: 'Soft Top'
-      };
-      const formattedBoards = boardTypes.map(board => boardLabels[board]).join(', ') || 'No boards selected';
-
-      // Get user's recent diary entries for context
-      const diaryEntries = await admin.firestore()
-        .collection('users')
-        .doc(userId)
-        .collection('surfEntries')
-        .orderBy('timestamp', 'desc')
-        .limit(5)
-        .get();
-
-      const recentEntries = diaryEntries.docs.map(doc => {
-        const data = doc.data();
-        return {
-          date: new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
-          rating: data.rating,
-          hadFun: data.hadFun,
-          description: data.description
-        };
-      });
-
-      userData = {
-        userBoards: formattedBoards,
-        recentDiaryEntries: recentEntries
-      };
+      userData = await getUserData(userId);
     }
 
     const coordinates = await getSpotCoordinates(location);
@@ -1175,7 +1184,10 @@ exports.sendSurfReports = onSchedule({
         // Send ONE regular email
         await sgMail.send({
           to: user.email,
-          from: fromEmail,
+          from: {
+            email: fromEmail,
+            name: "KookCast"
+          },
           subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
           templateId: templateId,
           dynamicTemplateData: templateData
@@ -1487,7 +1499,10 @@ exports.testSendEmails = onRequest({
       // Send ONE premium email
       await sgMail.send({
         to: email,
-        from: fromEmail,
+        from: {
+          email: fromEmail,
+          name: "KookCast"
+        },
         subject: `${featuredSpot.name} is looking 🔥 today!`,
         templateId: premiumTemplateId,
         dynamicTemplateData: templateData
@@ -1557,7 +1572,10 @@ exports.testSendEmails = onRequest({
       // Send ONE regular email
       await sgMail.send({
         to: email,
-        from: fromEmail,
+        from: {
+          email: fromEmail,
+          name: "KookCast"
+        },
         subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
         templateId: templateId,
         dynamicTemplateData: templateData
@@ -1728,7 +1746,10 @@ exports.sendPremiumSurfReports = onSchedule({
         // Send premium email
         await sgMail.send({
           to: user.email,
-          from: fromEmail,
+          from: {
+            email: fromEmail,
+            name: "KookCast"
+          },
           subject: `${featuredSpot.name} is looking 🔥 today!`,
           templateId: premiumTemplateId,
           dynamicTemplateData: templateData
