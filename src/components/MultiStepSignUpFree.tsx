@@ -51,6 +51,12 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
   }, []);
 
   const handleSpotSelect = (spotId: string) => {
+    // If trying to select more than 5 spots, show error
+    if (selectedSpot && selectedSpot !== spotId) {
+      setError('You can select up to 5 spots. Please remove a spot before adding another.');
+      return;
+    }
+
     if (selectedSpot === spotId) {
       setSelectedSpot(null);
     } else {
@@ -100,10 +106,12 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
         email: user.email,
         createdAt: new Date().toISOString(),
         surfLocations: selectedSpot ? [selectedSpot] : [],
-        surferDescription: surferPreferences.description,
-        boardTypes: surferPreferences.boardTypes,
+        surferPreferences: {
+          description: surferPreferences.description,
+          boardTypes: surferPreferences.boardTypes
+        },
         emailVerified: false,
-        isPremium: false,
+        premium: false,
       });
 
       // Send signup notification
@@ -205,7 +213,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
                     <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
                       <div className="text-center">
                         <div className="text-gray-500 mb-2">🔒</div>
-                        <div className="text-sm text-gray-600">Upgrade to Kook+ to select multiple spots</div>
+                        <div className="text-sm text-gray-600">Maximum 5 spots selected</div>
                       </div>
                     </div>
                   )}

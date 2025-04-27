@@ -12,19 +12,37 @@ import PaymentForm from '@/components/PaymentForm';
 
 import useUserProfile from '@/hooks/useUserProfile';
 
+// Add board options and types
+interface BoardOption {
+  id: string;
+  label: string;
+  description: string;
+}
+
+const boardOptions: BoardOption[] = [
+  { id: 'shortboard', label: 'Shortboard', description: '5\'6" - 6\'4" performance board' },
+  { id: 'funboard', label: 'Funboard/Mini-mal', description: '7\'0" - 8\'0" versatile board' },
+  { id: 'longboard', label: 'Longboard', description: '9\'0"+ classic longboard' },
+  { id: 'fish', label: 'Fish', description: '5\'4" - 6\'0" retro fish' },
+  { id: 'foamie', label: 'Soft-top/Foamie', description: 'Beginner-friendly foam board' },
+  { id: 'sup', label: 'SUP', description: 'Stand-up paddleboard' }
+];
+
+// Import SurferPreferences interface
+interface SurferPreferences {
+  description: string;
+  boardTypes: string[];
+}
+
+// Update UserData interface to use SurferPreferences
 interface UserData {
   email: string;
   createdAt: string;
   surfLocations: string[];
-  surferType: string;
+  surferPreferences: SurferPreferences;
   emailVerified: boolean;
   premium: boolean;
-  homeBreak?: string;
-  boardTypes: string[];
-  displayName?: string;
-  photoURL?: string;
   updatedAt?: string;
-  selectedSpots?: string[]; // For backward compatibility
 }
 
 const boardLabels: Record<string, string> = {
@@ -59,6 +77,10 @@ export default function DashboardV2() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showHomeBreakPicker, setShowHomeBreakPicker] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [showSurfStyleModal, setShowSurfStyleModal] = useState(false);
+  const [showBoardsModal, setShowBoardsModal] = useState(false);
+  const [surfStyle, setSurfStyle] = useState('');
+  const [selectedBoards, setSelectedBoards] = useState<string[]>([]);
   const router = useRouter();
 
   // Keep selectedSpots in sync with userData
@@ -115,6 +137,13 @@ export default function DashboardV2() {
       setShowUpgradeModal(true);
       return;
     }
+    
+    // For premium users, enforce 5 spot limit
+    if (userData?.premium && selectedSpots.length >= 5 && !selectedSpots.includes(spotId)) {
+      setError('You can select up to 5 spots. Please remove a spot before adding another.');
+      return;
+    }
+
     setSelectedSpots(prev => {
       if (prev.includes(spotId)) {
         return prev.filter(id => id !== spotId);
@@ -135,24 +164,6 @@ export default function DashboardV2() {
         updatedAt: new Date().toISOString(),
       });
       setShowSpotPicker(false);
-    } catch (error: any) {
-      setUpdateError(error.message);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleSetHomeBreak = async (spotId: string) => {
-    const { auth } = await import('@/lib/firebase');
-    if (!auth.currentUser) return;
-    setIsUpdating(true);
-    setUpdateError('');
-    try {
-      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-        homeBreak: spotId,
-        updatedAt: new Date().toISOString(),
-      });
-      setShowHomeBreakPicker(false);
     } catch (error: any) {
       setUpdateError(error.message);
     } finally {
@@ -234,6 +245,49 @@ export default function DashboardV2() {
 
   // Use error from hook unless local error is set
   const displayError = error || userProfileError;
+
+  // Add update functions
+  const handleUpdateSurfStyle = async () => {
+    if (!auth.currentUser) return;
+    setIsUpdating(true);
+    setUpdateError('');
+    try {
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        'surferPreferences.description': surfStyle,
+        updatedAt: new Date().toISOString(),
+      });
+      setShowSurfStyleModal(false);
+    } catch (error: any) {
+      setUpdateError(error.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleUpdateBoards = async () => {
+    if (!auth.currentUser) return;
+    setIsUpdating(true);
+    setUpdateError('');
+    try {
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        'surferPreferences.boardTypes': selectedBoards,
+        updatedAt: new Date().toISOString(),
+      });
+      setShowBoardsModal(false);
+    } catch (error: any) {
+      setUpdateError(error.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Update useEffect to use nested structure
+  useEffect(() => {
+    if (userData) {
+      setSurfStyle(userData.surferPreferences?.description || '');
+      setSelectedBoards(userData.surferPreferences?.boardTypes || []);
+    }
+  }, [userData]);
 
   if (loading) {
     return (
@@ -442,21 +496,6 @@ export default function DashboardV2() {
                   >
                     Update Surf Spots
                   </button>
-                  <Link
-                    href={{
-                      pathname: '/profile-setup',
-                      query: {
-                        email: userData?.email,
-                        surferType: userData?.surferType,
-                        boardTypes: userData?.boardTypes?.join(','),
-                        homeBreak: userData?.homeBreak,
-                        surfLocations: userData?.surfLocations?.join(',')
-                      }
-                    }}
-                    className="w-full px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm sm:text-base block text-center"
-                  >
-                    Update Profile
-                  </Link>
                   {userData?.premium && <CancelSubscriptionButton />}
                 </div>
               </div>
@@ -477,43 +516,43 @@ export default function DashboardV2() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Surf Location{userData?.premium ? 's' : ''}</p>
-                    <p className="font-medium text-sm sm:text-base">
-                      {surfSpots.map(spot => spot.name).join(', ') || 'Not set'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Home Break</p>
                     <div className="flex items-center justify-between">
                       <p className="font-medium text-sm sm:text-base">
-                        {userData?.homeBreak 
-                          ? allSpots.find(s => s.id === userData.homeBreak)?.name 
-                          : 'Not set'}
+                        {surfSpots.map(spot => spot.name).join(', ') || 'Not set'}
                       </p>
                       <button
-                        onClick={() => setShowHomeBreakPicker(true)}
+                        onClick={() => setShowSpotPicker(true)}
                         className="text-blue-500 hover:text-blue-600 text-sm"
                       >
-                        Change
+                        Edit
                       </button>
                     </div>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Surfer Type</p>
-                    <p className="font-medium text-sm sm:text-base">{userData?.surferType || 'Not set'}</p>
+                    <p className="text-sm text-gray-500">Surfing Style</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-sm sm:text-base">{userData?.surferPreferences?.description || 'Not set'}</p>
+                      <button
+                        onClick={() => setShowSurfStyleModal(true)}
+                        className="text-blue-500 hover:text-blue-600 text-sm"
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Boards</p>
                     <div className="flex items-center justify-between">
                       <p className="font-medium text-sm sm:text-base">
-                        {userData?.boardTypes?.length 
-                          ? userData.boardTypes.map(board => boardLabels[board]).join(', ')
+                        {userData?.surferPreferences?.boardTypes?.length 
+                          ? userData.surferPreferences.boardTypes.map(board => boardLabels[board]).join(', ')
                           : 'Not set'}
                       </p>
                       <button
-                        onClick={() => router.push('/profile-setup')}
+                        onClick={() => setShowBoardsModal(true)}
                         className="text-blue-500 hover:text-blue-600 text-sm"
                       >
-                        Update
+                        Edit
                       </button>
                     </div>
                   </div>
@@ -667,6 +706,7 @@ export default function DashboardV2() {
                   )
                   .map((spot) => {
                     const isLocked = !userData?.premium && !selectedSpots.includes(spot.id) && selectedSpots.length > 0;
+                    const isMaxSpots = userData?.premium && selectedSpots.length >= 5 && !selectedSpots.includes(spot.id);
                     return (
                       <div
                         key={spot.id}
@@ -674,18 +714,20 @@ export default function DashboardV2() {
                         className={`p-4 rounded-lg border cursor-pointer transition-all relative ${
                           selectedSpots.includes(spot.id)
                             ? 'border-blue-500 bg-blue-50'
-                            : isLocked
+                            : isLocked || isMaxSpots
                             ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
                             : 'border-gray-200 hover:border-blue-300'
                         }`}
                       >
-                        {isLocked && (
+                        {(isLocked || isMaxSpots) && (
                           <div className="absolute inset-0 bg-black bg-opacity-20 rounded-lg flex items-center justify-center">
                             <div className="bg-white/80 p-2 rounded-lg flex items-center gap-2">
                               <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                               </svg>
-                              <span className="text-sm font-medium text-gray-600">Upgrade to Unlock</span>
+                              <span className="text-sm font-medium text-gray-600">
+                                {isLocked ? 'Upgrade to Unlock' : 'Maximum 5 spots'}
+                              </span>
                             </div>
                           </div>
                         )}
@@ -711,7 +753,7 @@ export default function DashboardV2() {
                   <div>
                     <p className="text-sm text-gray-600">
                       {userData?.premium
-                        ? 'Select up to 5 spots'
+                        ? `Selected ${selectedSpots.length} of 5 spots`
                         : 'Free users can select 1 spot'}
                     </p>
                     {updateError && (
@@ -732,75 +774,96 @@ export default function DashboardV2() {
         </div>
       )}
 
-      {/* Home Break Picker Modal */}
-      {showHomeBreakPicker && (
+      {/* Add new modals for editing surf style and boards */}
+      {showSurfStyleModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-hidden">
             <div className="p-6 border-b border-gray-200">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Set Your Home Break</h3>
+                <h3 className="text-xl font-semibold">Edit Surfing Style</h3>
                 <button
-                  onClick={() => setShowHomeBreakPicker(false)}
+                  onClick={() => setShowSurfStyleModal(false)}
                   className="text-gray-400 hover:text-gray-500"
                 >
                   ✕
                 </button>
               </div>
-              <div className="relative mb-4">
-                <input
-                  type="text"
-                  placeholder="Search surf spots..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+              <textarea
+                value={surfStyle}
+                onChange={(e) => setSurfStyle(e.target.value)}
+                placeholder="Describe your surfing style and experience..."
+                className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[150px]"
+              />
+            </div>
+            <div className="p-6 bg-gray-50 border-t border-gray-200">
+              <div className="flex justify-between items-center">
+                <div>
+                  {updateError && (
+                    <p className="text-sm text-red-500">{updateError}</p>
+                  )}
+                </div>
+                <button
+                  onClick={handleUpdateSurfStyle}
+                  disabled={isUpdating}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {isUpdating ? 'Saving...' : 'Save Changes'}
+                </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto">
-                {allSpots
-                  .filter(spot => 
-                    spot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    spot.region.toLowerCase().includes(searchQuery.toLowerCase())
-                  )
-                  .map((spot) => (
-                    <div
-                      key={spot.id}
-                      onClick={() => handleSetHomeBreak(spot.id)}
-                      className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                        userData?.homeBreak === spot.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-medium">{spot.name}</h4>
-                          <p className="text-sm text-gray-600">{spot.region}</p>
-                        </div>
-                        {spot.isMostPopular && (
-                          <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                            Popular
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBoardsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-semibold">Edit Boards</h3>
+                <button
+                  onClick={() => setShowBoardsModal(false)}
+                  className="text-gray-400 hover:text-gray-500"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {boardOptions.map((board) => (
+                  <div
+                    key={board.id}
+                    onClick={() => {
+                      setSelectedBoards(prev =>
+                        prev.includes(board.id)
+                          ? prev.filter(id => id !== board.id)
+                          : [...prev, board.id]
+                      );
+                    }}
+                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                      selectedBoards.includes(board.id)
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <h4 className="font-medium">{board.label}</h4>
+                    <p className="text-sm text-gray-600">{board.description}</p>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="p-6 bg-gray-50 border-t border-gray-200">
               <div className="flex justify-between items-center">
                 <div>
-                  <p className="text-sm text-gray-600">
-                    Select your main surf spot
-                  </p>
                   {updateError && (
-                    <p className="text-sm text-red-500 mt-2">{updateError}</p>
+                    <p className="text-sm text-red-500">{updateError}</p>
                   )}
                 </div>
                 <button
-                  onClick={() => setShowHomeBreakPicker(false)}
-                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                  onClick={handleUpdateBoards}
+                  disabled={isUpdating}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
                 >
-                  Close
+                  {isUpdating ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>

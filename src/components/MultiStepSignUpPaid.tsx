@@ -201,6 +201,12 @@ export default function MultiStepSignUpPaid({
   }, []);
 
   const handleSpotSelect = (spotId: string) => {
+    // If trying to select more than 5 spots, show error
+    if (selectedSpots.length >= 5 && !selectedSpots.includes(spotId)) {
+      setError('You can select up to 5 spots. Please remove a spot before adding another.');
+      return;
+    }
+
     setSelectedSpots(prev => {
       if (prev.includes(spotId)) {
         return prev.filter(id => id !== spotId);
@@ -357,23 +363,35 @@ export default function MultiStepSignUpPaid({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {displayedSpots.map((spot) => {
               const isSelected = selectedSpots.includes(spot.id);
+              const isLocked = selectedSpots.length >= 5 && !isSelected;
               
               return (
                 <button
                   key={spot.id}
                   onClick={() => handleSpotSelect(spot.id)}
-                  className={`p-4 border rounded-lg transition-all duration-200 ${
+                  disabled={isLocked}
+                  className={`p-4 border rounded-lg transition-all duration-200 relative ${
                     isSelected
                       ? 'border-blue-500 bg-blue-50'
-                      : spot.isMostPopular 
-                        ? 'border-yellow-400 bg-yellow-50 hover:border-yellow-500 hover:bg-yellow-100' 
-                        : 'hover:border-blue-500 hover:bg-blue-50'
+                      : isLocked
+                        ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
+                        : spot.isMostPopular 
+                          ? 'border-yellow-400 bg-yellow-50 hover:border-yellow-500 hover:bg-yellow-100' 
+                          : 'hover:border-blue-500 hover:bg-blue-50'
                   }`}
                 >
+                  {spot.isMostPopular && (
+                    <span className="text-yellow-500 text-xl">⭐</span>
+                  )}
+                  {isLocked && (
+                    <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
+                      <div className="text-center">
+                        <div className="text-gray-500 mb-2">🔒</div>
+                        <div className="text-sm text-gray-600">Maximum 5 spots selected</div>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-start gap-3">
-                    {spot.isMostPopular && (
-                      <span className="text-yellow-500 text-xl">⭐</span>
-                    )}
                     <div className="flex-1">
                       <div className="font-medium text-lg">{spot.name}</div>
                       <div className="text-sm text-gray-600 mt-1">{spot.region}</div>
