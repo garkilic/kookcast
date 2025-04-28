@@ -16,6 +16,7 @@ const sendgridFromEmail = defineSecret('SENDGRID_FROM_EMAIL');
 const sendgridTemplateId = defineSecret('SENDGRID_TEMPLATE_ID');
 const sendgridPremiumTemplateId = defineSecret('SENDGRID_PREMIUM_TEMPLATE_ID');
 const openaiApiKey = defineSecret('OPENAI_API_KEY');
+const worldTidesApiKey = defineSecret('WORLDTIDES_API_KEY');
 
 // Initialize Express app
 const app = express();
@@ -246,57 +247,165 @@ app.post('/trigger-scheduled', async (req, res) => {
         const validReports = spotReports.filter(report => report !== null);
         console.log(`[VALID_REPORTS] Generated ${validReports.length} valid reports`);
 
-        // Find the best spot based on skill match percentage
-        const bestSpot = validReports.reduce((best, current) => {
-          const currentMatch = parseInt(current.skill_match.replace('%', ''));
-          const bestMatch = parseInt(best.skill_match.replace('%', ''));
-          return currentMatch > bestMatch ? current : best;
-        }, validReports[0]);
+        // Score each spot based on multiple factors
+        const scoredSpots = validReports.map(spot => {
+          // Get skill match percentage
+          const skillMatch = parseInt(spot.skill_match.replace('%', ''));
+          
+          // Get tide data
+          const tideData = spot.weatherData?.current?.buoyData;
+          const tideScore = tideData ? {
+            current: tideData.tide,
+            trend: tideData.tideTrend,
+            nextHigh: tideData.nextHighTide,
+            nextLow: tideData.nextLowTide,
+            range: tideData.tideRange
+          } : null;
+          
+          // Get wave data
+          const waveData = spot.weatherData?.current;
+          const waveScore = waveData ? {
+            height: waveData.waveHeight,
+            period: waveData.swellPeriod,
+            direction: waveData.swellDirection
+          } : null;
+          
+          // Get wind data
+          const windData = spot.weatherData?.current;
+          const windScore = windData ? {
+            speed: windData.windSpeed,
+            direction: windData.windDirection,
+            gusts: windData.windGusts
+          } : null;
+          
+          // Calculate overall score
+          let overallScore = skillMatch; // Base score on skill match
+          
+          // Add tide score if available
+          if (tideScore) {
+            if (tideScore.trend === 'rising') overallScore += 10;
+            if (tideScore.range && tideScore.range.range > 2 && tideScore.range.range < 6) overallScore += 5;
+          }
+          
+          // Add wave score if available
+          if (waveScore) {
+            if (waveScore.height > 2 && waveScore.height < 6) overallScore += 10;
+            if (waveScore.period > 8) overallScore += 5;
+          }
+          
+          // Add wind score if available
+          if (windScore) {
+            if (windScore.speed < 10) overallScore += 10;
+            if (windScore.direction > 180 && windScore.direction < 360) overallScore += 5;
+          }
+          
+          return {
+            ...spot,
+            score: overallScore,
+            tideData,
+            waveData,
+            windData
+          };
+        });
 
-        // Format the featured spot
+        // Sort spots by score and take top 3
+        const bestSpots = scoredSpots
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+
+        console.log(`[BEST_SPOTS] Selected top 3 spots for ${user.email}:`, 
+          bestSpots.map(spot => `${spot.spot_name} (Score: ${spot.score})`));
+
+        // Format the featured spot (best overall)
         const featuredSpot = {
-          name: bestSpot.spot_name,
-          highlight: bestSpot.match_summary,
-          reason: bestSpot.match_conditions,
-          wave: bestSpot.wave_height,
-          conditions: bestSpot.conditions,
-          skill: bestSpot.skill_match,
-          board: bestSpot.best_board,
-          air: bestSpot.air_temp,
-          cloud: bestSpot.clouds,
-          rain: bestSpot.rain_chance,
-          wind: bestSpot.wind_description,
-          water: bestSpot.water_temp,
-          wetsuit: bestSpot.gear,
-          best_time: bestSpot.prime_time,
-          alt_time: bestSpot.backup_time,
-          tip1: bestSpot.tip1,
-          tip2: bestSpot.tip2,
-          tip3: bestSpot.tip3,
-          tide: bestSpot.weatherData?.current?.buoyData?.tide || 'No tide data available'
+          name: bestSpots[0].spot_name,
+          highlight: bestSpots[0].match_summary,
+          reason: bestSpots[0].match_conditions,
+          wave: bestSpots[0].wave_height,
+          conditions: bestSpots[0].conditions,
+          skill: bestSpots[0].skill_match,
+          board: bestSpots[0].best_board,
+          air: bestSpots[0].air_temp,
+          cloud: bestSpots[0].clouds,
+          rain: bestSpots[0].rain_chance,
+          wind: bestSpots[0].wind_description,
+          water: bestSpots[0].water_temp,
+          wetsuit: bestSpots[0].gear,
+          best_time: bestSpots[0].prime_time,
+          alt_time: bestSpots[0].backup_time,
+          tide: bestSpots[0].tideData ? {
+            current: `${bestSpots[0].tideData.tide}ft`,
+            trend: bestSpots[0].tideData.tideTrend,
+            nextHigh: bestSpots[0].tideData.nextHighTide ? {
+              time: bestSpots[0].tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+              height: `${bestSpots[0].tideData.nextHighTide.height}ft`
+            } : null,
+            nextLow: bestSpots[0].tideData.nextLowTide ? {
+              time: bestSpots[0].tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+              height: `${bestSpots[0].tideData.nextLowTide.height}ft`
+            } : null,
+            range: bestSpots[0].tideData.tideRange ? {
+              min: `${bestSpots[0].tideData.tideRange.min}ft`,
+              max: `${bestSpots[0].tideData.tideRange.max}ft`,
+              range: `${bestSpots[0].tideData.tideRange.range}ft`
+            } : null
+          } : 'No tide data available',
+          swell: bestSpots[0].swell_data
         };
 
-        // Format remaining spots
-        const otherSpots = validReports
-          .filter(spot => spot.spot_name !== bestSpot.spot_name)
-          .map(spot => ({
+        // Format additional spots (2nd and 3rd best)
+        const additionalSpots = bestSpots.slice(1).map(spot => {
+          const tideData = spot.tideData;
+          console.log(`[TIDE_DATA] Spot ${spot.spot_name}: ${tideData ? `Tide: ${tideData.tide}ft (${tideData.tideTrend})` : 'No tide data available'}`);
+          return {
             name: spot.spot_name,
             highlight: spot.match_summary,
+            reason: spot.match_conditions,
             wave: spot.wave_height,
             conditions: spot.conditions,
             skill: spot.skill_match,
             board: spot.best_board,
+            air: spot.air_temp,
+            cloud: spot.clouds,
+            rain: spot.rain_chance,
+            wind: spot.wind_description,
+            water: spot.water_temp,
+            wetsuit: spot.gear,
             best_time: spot.prime_time,
             alt_time: spot.backup_time,
-            tide: spot.weatherData?.current?.buoyData?.tide || 'No tide data available'
-          }));
+            tide: tideData ? {
+              current: `${tideData.tide}ft`,
+              trend: tideData.tideTrend,
+              nextHigh: tideData.nextHighTide ? {
+                time: tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                height: `${tideData.nextHighTide.height}ft`
+              } : null,
+              nextLow: tideData.nextLowTide ? {
+                time: tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                height: `${tideData.nextLowTide.height}ft`
+              } : null,
+              range: tideData.tideRange ? {
+                min: `${tideData.tideRange.min}ft`,
+                max: `${tideData.tideRange.max}ft`,
+                range: `${tideData.tideRange.range}ft`
+              } : null
+            } : 'No tide data available',
+            swell: spot.swell_data
+          };
+        });
 
-        // Prepare template data
+        // Prepare email template data
         const templateData = {
-          user_name: user.displayName || 'Surfer',
           featured_spot: featuredSpot,
-          spots: otherSpots,
-          total_spots: validReports.length,
+          additional_spots: additionalSpots,
+          user_name: userData.name || 'Surfer',
+          date: today.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            timeZone: 'America/Los_Angeles'
+          }),
           diary_url: "https://kook-cast.com/diary/new-session",
           subject: `${featuredSpot.name} is looking 🔥 today!`
         };
@@ -746,10 +855,14 @@ const WeatherProcessor = {
         windDirection: weatherData.hourly.winddirection_10m[currentHourIndex],
         windGusts: convertToMph(weatherData.hourly.windgusts_10m[currentHourIndex]),
         buoyData: buoyData ? {
-          waterTemperature: convertToFahrenheit(buoyData.data.waterTemperature),
-          waveHeight: convertToFeet(buoyData.data.waveHeight),
-          wavePeriod: buoyData.data.dominantWavePeriod,
-          tide: buoyData.data.tide
+          waterTemperature: buoyData.data?.waterTemperature ? convertToFahrenheit(buoyData.data.waterTemperature) : null,
+          waveHeight: buoyData.data?.waveHeight ? convertToFeet(buoyData.data.waveHeight) : null,
+          wavePeriod: buoyData.data?.dominantWavePeriod || null,
+          tide: buoyData.tide || null,
+          tideTrend: buoyData.tideTrend || null,
+          nextHighTide: buoyData.nextHighTide || null,
+          nextLowTide: buoyData.nextLowTide || null,
+          tideRange: buoyData.tideRange || null
         } : null
       },
       today: {
@@ -766,52 +879,229 @@ const WeatherProcessor = {
 
 // Buoy Data Module
 const BuoyData = {
-  async findNearestStation(latitude, longitude) {
-    const parser = new xml2js.Parser();
-    const stationsResponse = await fetch('https://www.ndbc.noaa.gov/activestations.xml');
-    const stationsText = await stationsResponse.text();
-    const stationsResult = await parser.parseStringPromise(stationsText);
-    const stations = stationsResult?.stations?.station || [];
+  // Known buoy stations for Southern California
+  knownStations: [
+    // Malibu Area
+    { id: '46232', name: 'Santa Monica Basin', lat: 33.738, lon: -118.418 },
+    { id: '46225', name: 'Santa Monica Bay', lat: 33.738, lon: -118.418 },
+    { id: '46224', name: 'Malibu', lat: 34.037, lon: -118.678 },
+    { id: '46223', name: 'Point Dume', lat: 34.002, lon: -118.805 },
     
-    return this.calculateNearestStation(stations, latitude, longitude);
-  },
+    // South Bay Area
+    { id: '46222', name: 'San Pedro South', lat: 33.618, lon: -118.288 },
+    { id: '46221', name: 'San Pedro Bay', lat: 33.618, lon: -118.288 },
+    { id: '46220', name: 'Palos Verdes', lat: 33.742, lon: -118.410 },
+    { id: '46219', name: 'Redondo Beach', lat: 33.842, lon: -118.410 },
+    { id: '46218', name: 'Long Beach', lat: 33.618, lon: -118.288 },
+    { id: '46217', name: 'Los Angeles Harbor', lat: 33.718, lon: -118.268 },
+    
+    // LA Harbor Area
+    { id: '46216', name: 'Los Angeles Harbor Entrance', lat: 33.718, lon: -118.268 },
+    { id: '46215', name: 'Los Angeles Harbor Channel', lat: 33.718, lon: -118.268 },
+    { id: '46214', name: 'Los Angeles Harbor Breakwater', lat: 33.718, lon: -118.268 },
+    { id: '46213', name: 'Los Angeles Harbor Inner', lat: 33.718, lon: -118.268 },
+    { id: '46212', name: 'Los Angeles Harbor Outer', lat: 33.718, lon: -118.268 },
+    
+    // Ventura Area
+    { id: '46211', name: 'Ventura Harbor', lat: 34.247, lon: -119.258 },
+    { id: '46210', name: 'Ventura Point', lat: 34.275, lon: -119.295 },
+    { id: '46209', name: 'Ventura County', lat: 34.247, lon: -119.258 },
+    
+    // Orange County
+    { id: '46208', name: 'Huntington Beach', lat: 33.655, lon: -118.002 },
+    { id: '46207', name: 'Newport Beach', lat: 33.618, lon: -117.928 },
+    { id: '46206', name: 'Laguna Beach', lat: 33.542, lon: -117.783 },
+    { id: '46205', name: 'Dana Point', lat: 33.467, lon: -117.702 },
+    
+    // San Diego Area
+    { id: '46204', name: 'San Diego Bay', lat: 32.715, lon: -117.173 },
+    { id: '46203', name: 'Mission Bay', lat: 32.783, lon: -117.217 },
+    { id: '46202', name: 'La Jolla', lat: 32.832, lon: -117.271 },
+    { id: '46201', name: 'Del Mar', lat: 32.967, lon: -117.267 }
+  ],
 
-  calculateNearestStation(stations, latitude, longitude) {
-    let nearestStation = null;
+  // Find closest station to given coordinates
+  findClosestStation(lat, lon) {
+    let closestStation = null;
     let minDistance = Infinity;
     
-    stations.forEach(station => {
-      if (!station?.lat?.[0] || !station?.lon?.[0]) return;
-      
-      const stationLat = parseFloat(station.lat[0]);
-      const stationLon = parseFloat(station.lon[0]);
-      const distance = this.calculateDistance(latitude, longitude, stationLat, stationLon);
-      
-      if (distance < minDistance && distance <= CONFIG.MAX_DISTANCE_KM) {
+    for (const station of this.knownStations) {
+      const distance = this.calculateDistance(lat, lon, station.lat, station.lon);
+      if (distance < minDistance) {
         minDistance = distance;
-        nearestStation = station;
+        closestStation = station;
       }
-    });
+    }
     
-    return { station: nearestStation, distance: minDistance };
+    return closestStation;
   },
 
+  // Calculate distance between two points using Haversine formula
   calculateDistance(lat1, lon1, lat2, lon2) {
     const R = 6371; // Earth's radius in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    const dLat = this.toRad(lat2 - lat1);
+    const dLon = this.toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) * 
       Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
   },
 
-  async fetchStationData(stationId) {
-    const response = await fetch(`https://www.ndbc.noaa.gov/data/realtime2/${stationId}.txt`);
-    const dataText = await response.text();
-    return this.parseStationData(dataText);
+  toRad(degrees) {
+    return degrees * (Math.PI/180);
+  },
+
+  // Tide data enhancement
+  async fetchStationData(stationId, spotLat, spotLon) {
+    try {
+      console.log(`[TIDE_DATA] Fetching data for station ${stationId} at spot coordinates ${spotLat},${spotLon}`);
+      
+      // Try NOAA NDBC first
+      const ndbcResponse = await fetch(`https://www.ndbc.noaa.gov/data/realtime2/${stationId}.txt`);
+      const dataText = await ndbcResponse.text();
+      const basicData = this.parseStationData(dataText);
+      
+      // If no NDBC data, try WorldTides using spot coordinates
+      try {
+        const worldTidesKey = worldTidesApiKey.value();
+        const worldTidesResponse = await fetch(`https://www.worldtides.info/api/v2?heights&lat=${spotLat}&lon=${spotLon}&key=${worldTidesKey}`);
+        const worldTidesData = await worldTidesResponse.json();
+        
+        if (worldTidesData?.heights?.[0]) {
+          basicData.tide = worldTidesData.heights[0].height;
+          console.log(`[TIDE_DATA] Retrieved tide data from WorldTides for spot: ${basicData.tide}ft`);
+          return await this.enhanceTideData(basicData, spotLat, spotLon);
+        }
+      } catch (worldTidesError) {
+        console.error('[TIDE_DATA] Error fetching WorldTides data:', worldTidesError);
+      }
+      
+      // If WorldTides fails, try NOAA predictions
+      try {
+        const tideResponse = await fetch(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?station=${stationId}&product=predictions&datum=MLLW&time_zone=lst_ldt&units=english&format=json`);
+        const tideData = await tideResponse.json();
+        
+        if (tideData?.predictions?.[0]) {
+          basicData.tide = parseFloat(tideData.predictions[0].v);
+          console.log(`[TIDE_DATA] Retrieved tide data from NOAA predictions: ${basicData.tide}ft`);
+          return await this.enhanceTideData(basicData, spotLat, spotLon);
+        }
+      } catch (tideError) {
+        console.error('[TIDE_DATA] Error fetching tide predictions:', tideError);
+      }
+      
+      // If all sources fail, return basic data without tide
+      console.warn(`[TIDE_DATA] No tide data available for station ${stationId}`);
+      return basicData;
+      
+    } catch (error) {
+      console.error('[TIDE_DATA] Error fetching station data:', error);
+      return null;
+    }
+  },
+
+  async enhanceTideData(stationData, spotLat, spotLon) {
+    if (!stationData) return null;
+    
+    try {
+      // Get historical tide data from WorldTides using spot coordinates
+      const worldTidesKey = worldTidesApiKey.value();
+      const worldTidesResponse = await fetch(`https://www.worldtides.info/api/v2?heights&lat=${spotLat}&lon=${spotLon}&key=${worldTidesKey}&step=3600&length=86400`);
+      const worldTidesData = await worldTidesResponse.json();
+      
+      if (worldTidesData?.heights) {
+        // Calculate tide trends
+        const tideTrend = this.calculateTideTrend(worldTidesData.heights);
+        
+        // Find next high and low tides
+        const nextHighTide = this.findNextHighTide(worldTidesData.heights);
+        const nextLowTide = this.findNextLowTide(worldTidesData.heights);
+        
+        // Calculate tide range
+        const tideRange = this.calculateTideRange(worldTidesData.heights);
+        
+        return {
+          ...stationData,
+          tideTrend,
+          nextHighTide,
+          nextLowTide,
+          tideRange
+        };
+      }
+      
+      return stationData;
+    } catch (error) {
+      console.error('[TIDE_DATA] Error enhancing tide data:', error);
+      return stationData;
+    }
+  },
+
+  calculateTideTrend(heights) {
+    if (!heights || heights.length < 2) return 'unknown';
+    
+    const recentHeights = heights.slice(-6); // Last 6 readings
+    const firstHeight = recentHeights[0].height;
+    const lastHeight = recentHeights[recentHeights.length - 1].height;
+    
+    const difference = lastHeight - firstHeight;
+    if (Math.abs(difference) < 0.1) return 'stable';
+    return difference > 0 ? 'rising' : 'falling';
+  },
+
+  findNextHighTide(heights) {
+    if (!heights || heights.length < 12) return null;
+    
+    const currentTime = new Date().getTime();
+    const futureHeights = heights.filter(h => new Date(h.dt * 1000) > currentTime);
+    
+    if (futureHeights.length === 0) return null;
+    
+    let maxHeight = futureHeights[0];
+    for (const height of futureHeights) {
+      if (height.height > maxHeight.height) {
+        maxHeight = height;
+      }
+    }
+    
+    return {
+      time: new Date(maxHeight.dt * 1000),
+      height: maxHeight.height
+    };
+  },
+
+  findNextLowTide(heights) {
+    if (!heights || heights.length < 12) return null;
+    
+    const currentTime = new Date().getTime();
+    const futureHeights = heights.filter(h => new Date(h.dt * 1000) > currentTime);
+    
+    if (futureHeights.length === 0) return null;
+    
+    let minHeight = futureHeights[0];
+    for (const height of futureHeights) {
+      if (height.height < minHeight.height) {
+        minHeight = height;
+      }
+    }
+    
+    return {
+      time: new Date(minHeight.dt * 1000),
+      height: minHeight.height
+    };
+  },
+
+  calculateTideRange(heights) {
+    if (!heights || heights.length < 12) return null;
+    
+    const maxHeight = Math.max(...heights.map(h => h.height));
+    const minHeight = Math.min(...heights.map(h => h.height));
+    
+    return {
+      max: maxHeight,
+      min: minHeight,
+      range: maxHeight - minHeight
+    };
   },
 
   parseStationData(dataText) {
@@ -864,18 +1154,32 @@ const SurfReportGenerator = {
 
   async fetchBuoyData(latitude, longitude) {
     try {
-      const { station, distance } = await BuoyData.findNearestStation(latitude, longitude);
-      if (!station) return null;
+      // Find closest station
+      const closestStation = BuoyData.findClosestStation(latitude, longitude);
+      if (!closestStation) {
+        console.warn('[BUOY_DATA] No nearby station found');
+        return null;
+      }
+
+      console.log(`[BUOY_DATA] Using station ${closestStation.name} (${closestStation.id}) for coordinates ${latitude},${longitude}`);
       
-      const stationData = await BuoyData.fetchStationData(station.id[0]);
+      // Fetch station data using spot coordinates
+      const stationData = await BuoyData.fetchStationData(closestStation.id, latitude, longitude);
+      if (!stationData) {
+        console.warn('[BUOY_DATA] Failed to fetch station data');
+        return null;
+      }
+
       return {
-        stationId: station.id[0],
-        stationName: station.name[0],
-        distance,
-        data: stationData
+        station: closestStation.name,
+        tide: stationData.tide,
+        tideTrend: stationData.tideTrend,
+        nextHighTide: stationData.nextHighTide,
+        nextLowTide: stationData.nextLowTide,
+        tideRange: stationData.tideRange
       };
     } catch (error) {
-      console.error('Error fetching buoy data:', error);
+      console.error('[BUOY_DATA] Error fetching buoy data:', error);
       return null;
     }
   },
@@ -898,6 +1202,9 @@ const SurfReportGenerator = {
           
           Consider the user's profile and history:
           Surfing Style: ${userData?.surferType || 'intermediate'}
+          Skill Level: ${userData?.skillLevel || 'intermediate'}
+          Preferred Conditions: ${userData?.preferredConditions?.join(', ') || 'none specified'}
+          Goals: ${userData?.goals?.join(', ') || 'none specified'}
           
           User's surfboards: ${userData?.userBoards || 'No boards available'}
           
@@ -912,12 +1219,15 @@ const SurfReportGenerator = {
           Description: ${userData.lastSession.description || 'No description'}
           ` : 'No last session data'}
           
+          Average wave count: ${userData?.averageWaveCount || 0} waves per session
+          
           Generate a surf report for ${formattedLocation} on ${formattedDate}. 
           Use ONLY the provided weather data to make your assessment. Do not make up or modify any dates.
           
           For skill matching, consider:
-          - The user's surfing style
-          - Recent session performance and enjoyment
+          - The user's surfing style and skill level
+          - Their preferred conditions and goals
+          - Recent session performance and board usage
           - Current wave conditions
           - Wind conditions
           - Tide conditions
@@ -928,8 +1238,8 @@ const SurfReportGenerator = {
           
           For each field, generate dynamic content based on the actual data, writing as if you're personally guiding the surfer:
           - spot_name: The name of the surf spot
-          - match_summary: One sentence explaining why these conditions match the surfer's skill level and preferences
-          - match_conditions: One sentence about the overall conditions matching their style
+          - match_summary: One sentence explaining why these conditions match the surfer's skill level and preferences, referencing their recent sessions or goals
+          - match_conditions: One sentence about the overall conditions matching their style, with a personal touch
           - wave_height: Format as "X-Yft • Brief description" (e.g. "4-5ft • Perfect for you")
           - conditions: Brief description of wave quality (e.g. "✨ Clean & Glassy")
           - skill_match: Format as "XX% Compatible" - calculate based on how well conditions match their surf type
@@ -941,14 +1251,15 @@ const SurfReportGenerator = {
           - water_temp: Format as "XX°F (XX°C)"
           - gear: Brief wetsuit recommendation
           - prime_time: Format as "X:XX–X:XXam/pm"
-          - prime_notes: Brief note about why this time is good
+          - prime_notes: Brief note about why this time is good, referencing their recent sessions if relevant
           - backup_time: Format as "X:XX–X:XXam/pm"
           - backup_notes: Brief note about why this time is good
-          - tip1: Specific tip based on conditions and skill level
-          - tip2: Specific tip based on conditions and skill level
-          - tip3: Specific tip based on conditions and skill level
-          - daily_challenge: One specific, achievable challenge based on their recent performance
+          - tip1: Specific tip based on conditions and skill level, referencing their recent sessions or goals
+          - tip2: Specific tip about technique or strategy for these conditions
+          - tip3: A fun fact about surfing or the local area
+          - daily_challenge: One specific, achievable challenge based on their goals and recent performance
           - skill_focus: One specific skill to focus on based on their recent sessions
+          - fun_fact: An interesting fact about surfing, the local area, or surf history
           
           Keep all descriptions brief and to the point. Use imperial measurements:
           - Temperature in Fahrenheit (°F)
@@ -978,7 +1289,8 @@ const SurfReportGenerator = {
             "tip2": "string",
             "tip3": "string",
             "daily_challenge": "string",
-            "skill_focus": "string"
+            "skill_focus": "string",
+            "fun_fact": "string"
           }`
         },
         {
@@ -1319,6 +1631,8 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
       SurfReportGenerator.fetchBuoyData(coordinates.latitude, coordinates.longitude)
     ]);
     
+    console.log('[TIDE_DEBUG] Buoy data:', JSON.stringify(buoyData, null, 2));
+    
     const formattedData = WeatherProcessor.formatWeatherData(
       marineData,
       weatherData,
@@ -1326,7 +1640,22 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
       currentHourIndex
     );
     
+    console.log('[TIDE_DEBUG] Formatted data:', JSON.stringify(formattedData?.current?.buoyData, null, 2));
+    
     const report = await SurfReportGenerator.generateAIReport(location, formattedData, apiKey, userData);
+    
+    // Ensure tide data is properly passed through
+    if (buoyData) {
+      report.weatherData = {
+        ...report.weatherData,
+        current: {
+          ...report.weatherData?.current,
+          buoyData: buoyData
+        }
+      };
+    }
+    
+    console.log('[TIDE_DEBUG] Report data:', JSON.stringify(report?.weatherData?.current?.buoyData, null, 2));
     
     // Ensure go_today is always included with a valid value
     const validGoToday = ['yes', 'no', 'maybe'].includes(report.go_today?.toLowerCase()) 
@@ -1353,10 +1682,10 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
 
 // Scheduled function to send surf reports
 exports.sendSurfReports = onSchedule({
-  schedule: '0 3 * * *',  // 3 AM Iowa time = 5 AM LA time
-  timeZone: 'America/Chicago',  // Iowa timezone
+  schedule: '0 5 * * *',  // 5 AM LA time
+  timeZone: 'America/Los_Angeles',  // California timezone
   retryCount: 0,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey, worldTidesApiKey],
   memory: '256MiB'
 }, async (event) => {
   try {
@@ -1679,7 +2008,7 @@ app.post('/sync-email-verification', async (req, res) => {
 // Test function to send emails immediately
 exports.testSendEmails = onRequest({
   cors: true,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey, worldTidesApiKey],
   memory: '256MiB',
   timeoutSeconds: 300,
   minInstances: 1,
@@ -1778,39 +2107,107 @@ exports.testSendEmails = onRequest({
       const validReports = spotReports.filter(report => report !== null);
       console.log(`[TEST_SEND_EMAILS] Generated ${validReports.length} valid reports`);
 
-      // Find the best spot based on skill match percentage
-      const bestSpot = validReports.reduce((best, current) => {
-        const currentMatch = parseInt(current.skill_match.replace('%', ''));
-        const bestMatch = parseInt(best.skill_match.replace('%', ''));
-        return currentMatch > bestMatch ? current : best;
-      }, validReports[0]);
+      // Score each spot based on multiple factors
+      const scoredSpots = validReports.map(spot => {
+        // Get skill match percentage
+        const skillMatch = parseInt(spot.skill_match.replace('%', ''));
+        
+        // Get tide data
+        const tideData = spot.weatherData?.current?.buoyData;
+        const tideScore = tideData ? {
+          current: tideData.tide,
+          trend: tideData.tideTrend,
+          nextHigh: tideData.nextHighTide,
+          nextLow: tideData.nextLowTide,
+          range: tideData.tideRange
+        } : null;
+        
+        // Get wave data
+        const waveData = spot.weatherData?.current;
+        const waveScore = waveData ? {
+          height: waveData.waveHeight,
+          period: waveData.swellPeriod,
+          direction: waveData.swellDirection
+        } : null;
+        
+        // Get wind data
+        const windData = spot.weatherData?.current;
+        const windScore = windData ? {
+          speed: windData.windSpeed,
+          direction: windData.windDirection,
+          gusts: windData.windGusts
+        } : null;
+        
+        // Calculate overall score
+        let overallScore = skillMatch; // Base score on skill match
+        
+        // Add tide score if available
+        if (tideScore) {
+          if (tideScore.trend === 'rising') overallScore += 10;
+          if (tideScore.range && tideScore.range.range > 2 && tideScore.range.range < 6) overallScore += 5;
+        }
+        
+        // Add wave score if available
+        if (waveScore) {
+          if (waveScore.height > 2 && waveScore.height < 6) overallScore += 10;
+          if (waveScore.period > 8) overallScore += 5;
+        }
+        
+        // Add wind score if available
+        if (windScore) {
+          if (windScore.speed < 10) overallScore += 10;
+          if (windScore.direction > 180 && windScore.direction < 360) overallScore += 5;
+        }
+        
+        return {
+          ...spot,
+          score: overallScore,
+          tideData,
+          waveData,
+          windData
+        };
+      });
 
-      // Format the featured spot
+      // Sort spots by score and take top 3
+      const bestSpots = scoredSpots
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3);
+
+      console.log(`[TEST_SEND_EMAILS] Selected top 3 spots:`, 
+        bestSpots.map(spot => `${spot.spot_name} (Score: ${spot.score})`));
+
+      // Determine condition emoji based on skill match percentage of best spot
+      const skillMatch = parseInt(bestSpots[0].skill_match.replace('%', ''));
+      const conditionEmoji = skillMatch >= 75 ? '🟢' : 
+                           skillMatch >= 50 ? '🟡' : '🔴';
+
+      // Format the featured spot (best overall)
       const featuredSpot = {
-        name: bestSpot.spot_name,
-        highlight: bestSpot.match_summary,
-        reason: bestSpot.match_conditions,
-        wave: bestSpot.wave_height,
-        conditions: bestSpot.conditions,
-        skill: bestSpot.skill_match,
-        board: bestSpot.best_board,
-        air: bestSpot.air_temp,
-        cloud: bestSpot.clouds,
-        rain: bestSpot.rain_chance,
-        wind: bestSpot.wind_description,
-        water: bestSpot.water_temp,
-        wetsuit: bestSpot.gear,
-        best_time: bestSpot.prime_time,
-        alt_time: bestSpot.backup_time,
-        tip1: bestSpot.tip1,
-        tip2: bestSpot.tip2,
-        tip3: bestSpot.tip3
+        name: bestSpots[0].spot_name,
+        highlight: bestSpots[0].match_summary,
+        reason: bestSpots[0].match_conditions,
+        wave: bestSpots[0].wave_height,
+        conditions: bestSpots[0].conditions,
+        skill: bestSpots[0].skill_match,
+        board: bestSpots[0].best_board,
+        air: bestSpots[0].air_temp,
+        cloud: bestSpots[0].clouds,
+        rain: bestSpots[0].rain_chance,
+        wind: bestSpots[0].wind_description,
+        water: bestSpots[0].water_temp,
+        wetsuit: bestSpots[0].gear,
+        best_time: bestSpots[0].prime_time,
+        alt_time: bestSpots[0].backup_time,
+        tip1: bestSpots[0].tip1,
+        tip2: bestSpots[0].tip2,
+        tip3: bestSpots[0].tip3
       };
 
-      // Format remaining spots
-      const otherSpots = validReports
-        .filter(spot => spot.spot_name !== bestSpot.spot_name)
-        .map(spot => ({
+      // Format remaining spots (2nd and 3rd best)
+      const otherSpots = bestSpots.slice(1).map(spot => {
+        const tideData = spot.weatherData?.current?.buoyData?.tide;
+        console.log(`[TIDE_DATA] Spot ${spot.spot_name}: ${tideData ? `Tide: ${tideData}ft` : 'No tide data available'}`);
+        return {
           name: spot.spot_name,
           highlight: spot.match_summary,
           wave: spot.wave_height,
@@ -1819,33 +2216,34 @@ exports.testSendEmails = onRequest({
           board: spot.best_board,
           best_time: spot.prime_time,
           alt_time: spot.backup_time,
-          tide: spot.weatherData?.current?.buoyData?.tide || 'No tide data available'
-        }));
+          tide: tideData ? `${tideData}ft` : 'No tide data available'
+        };
+      });
 
       // Prepare template data
       const templateData = {
         user_name: user.displayName || 'Surfer',
         featured_spot: featuredSpot,
         spots: otherSpots,
-        total_spots: validReports.length,
+        total_spots: bestSpots.length,
         diary_url: "https://kook-cast.com/diary/new-session",
-        subject: `${featuredSpot.name} is looking 🔥 today!`
+        subject: `${conditionEmoji} Go surf at ${bestSpots[0].prime_time} at ${bestSpots[0].spot_name}`
       };
 
       // Send ONE premium email
-      console.log(`[TEST_SEND_EMAILS] Sending single email to ${email} with ${validReports.length} locations`);
-      await sgMail.send({
-        to: email,
+      console.log(`[SENDING_EMAIL] Sending single email to ${user.email} with ${bestSpots.length} locations`);
+      const emailResult = await sgMail.send({
+        to: user.email,
         from: {
           email: fromEmail,
           name: "KookCast"
         },
-        subject: `${featuredSpot.name} is looking 🔥 today!`,
+        subject: `${conditionEmoji} Go surf at ${bestSpots[0].prime_time} at ${bestSpots[0].spot_name}`,
         templateId: premiumTemplateId,
         dynamicTemplateData: templateData
       });
 
-      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent premium email to ${email} with ${validReports.length} spots`);
+      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent premium email to ${email} with ${bestSpots.length} spots`);
       
       return res.json({
         status: 'success',
@@ -1853,6 +2251,7 @@ exports.testSendEmails = onRequest({
         details: {
           locations_processed: locations.length,
           valid_reports: validReports.length,
+          selected_spots: bestSpots.length,
           processing_time_ms: endTime - startTime
         }
       });
@@ -1947,10 +2346,10 @@ exports.testSendEmails = onRequest({
 
 // Premium email function
 exports.sendPremiumSurfReports = onSchedule({
-  schedule: '0 3 * * *',  // 3 AM Iowa time = 5 AM LA time
-  timeZone: 'America/Chicago',  // Iowa timezone
+  schedule: '0 5 * * *',  // 5 AM LA time
+  timeZone: 'America/Los_Angeles',  // California timezone
   retryCount: 0,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridPremiumTemplateId, openaiApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridPremiumTemplateId, openaiApiKey, worldTidesApiKey],
   memory: '256MiB'
 }, async (event) => {
   try {
@@ -2059,57 +2458,165 @@ exports.sendPremiumSurfReports = onSchedule({
         const validReports = spotReports.filter(report => report !== null);
         console.log(`[VALID_REPORTS] Generated ${validReports.length} valid reports`);
 
-        // Find the best spot based on skill match percentage
-        const bestSpot = validReports.reduce((best, current) => {
-          const currentMatch = parseInt(current.skill_match.replace('%', ''));
-          const bestMatch = parseInt(best.skill_match.replace('%', ''));
-          return currentMatch > bestMatch ? current : best;
-        }, validReports[0]);
+        // Score each spot based on multiple factors
+        const scoredSpots = validReports.map(spot => {
+          // Get skill match percentage
+          const skillMatch = parseInt(spot.skill_match.replace('%', ''));
+          
+          // Get tide data
+          const tideData = spot.weatherData?.current?.buoyData;
+          const tideScore = tideData ? {
+            current: tideData.tide,
+            trend: tideData.tideTrend,
+            nextHigh: tideData.nextHighTide,
+            nextLow: tideData.nextLowTide,
+            range: tideData.tideRange
+          } : null;
+          
+          // Get wave data
+          const waveData = spot.weatherData?.current;
+          const waveScore = waveData ? {
+            height: waveData.waveHeight,
+            period: waveData.swellPeriod,
+            direction: waveData.swellDirection
+          } : null;
+          
+          // Get wind data
+          const windData = spot.weatherData?.current;
+          const windScore = windData ? {
+            speed: windData.windSpeed,
+            direction: windData.windDirection,
+            gusts: windData.windGusts
+          } : null;
+          
+          // Calculate overall score
+          let overallScore = skillMatch; // Base score on skill match
+          
+          // Add tide score if available
+          if (tideScore) {
+            if (tideScore.trend === 'rising') overallScore += 10;
+            if (tideScore.range && tideScore.range.range > 2 && tideScore.range.range < 6) overallScore += 5;
+          }
+          
+          // Add wave score if available
+          if (waveScore) {
+            if (waveScore.height > 2 && waveScore.height < 6) overallScore += 10;
+            if (waveScore.period > 8) overallScore += 5;
+          }
+          
+          // Add wind score if available
+          if (windScore) {
+            if (windScore.speed < 10) overallScore += 10;
+            if (windScore.direction > 180 && windScore.direction < 360) overallScore += 5;
+          }
+          
+          return {
+            ...spot,
+            score: overallScore,
+            tideData,
+            waveData,
+            windData
+          };
+        });
 
-        // Format the featured spot
+        // Sort spots by score and take top 3
+        const bestSpots = scoredSpots
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+
+        console.log(`[BEST_SPOTS] Selected top 3 spots for ${user.email}:`, 
+          bestSpots.map(spot => `${spot.spot_name} (Score: ${spot.score})`));
+
+        // Format the featured spot (best overall)
         const featuredSpot = {
-          name: bestSpot.spot_name,
-          highlight: bestSpot.match_summary,
-          reason: bestSpot.match_conditions,
-          wave: bestSpot.wave_height,
-          conditions: bestSpot.conditions,
-          skill: bestSpot.skill_match,
-          board: bestSpot.best_board,
-          air: bestSpot.air_temp,
-          cloud: bestSpot.clouds,
-          rain: bestSpot.rain_chance,
-          wind: bestSpot.wind_description,
-          water: bestSpot.water_temp,
-          wetsuit: bestSpot.gear,
-          best_time: bestSpot.prime_time,
-          alt_time: bestSpot.backup_time,
-          tip1: bestSpot.tip1,
-          tip2: bestSpot.tip2,
-          tip3: bestSpot.tip3,
-          tide: bestSpot.weatherData?.current?.buoyData?.tide || 'No tide data available'
+          name: bestSpots[0].spot_name,
+          highlight: bestSpots[0].match_summary,
+          reason: bestSpots[0].match_conditions,
+          wave: bestSpots[0].wave_height,
+          conditions: bestSpots[0].conditions,
+          skill: bestSpots[0].skill_match,
+          board: bestSpots[0].best_board,
+          air: bestSpots[0].air_temp,
+          cloud: bestSpots[0].clouds,
+          rain: bestSpots[0].rain_chance,
+          wind: bestSpots[0].wind_description,
+          water: bestSpots[0].water_temp,
+          wetsuit: bestSpots[0].gear,
+          best_time: bestSpots[0].prime_time,
+          alt_time: bestSpots[0].backup_time,
+          tide: bestSpots[0].tideData ? {
+            current: `${bestSpots[0].tideData.tide}ft`,
+            trend: bestSpots[0].tideData.tideTrend,
+            nextHigh: bestSpots[0].tideData.nextHighTide ? {
+              time: bestSpots[0].tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+              height: `${bestSpots[0].tideData.nextHighTide.height}ft`
+            } : null,
+            nextLow: bestSpots[0].tideData.nextLowTide ? {
+              time: bestSpots[0].tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+              height: `${bestSpots[0].tideData.nextLowTide.height}ft`
+            } : null,
+            range: bestSpots[0].tideData.tideRange ? {
+              min: `${bestSpots[0].tideData.tideRange.min}ft`,
+              max: `${bestSpots[0].tideData.tideRange.max}ft`,
+              range: `${bestSpots[0].tideData.tideRange.range}ft`
+            } : null
+          } : 'No tide data available',
+          swell: bestSpots[0].swell_data
         };
 
-        // Format remaining spots
-        const otherSpots = validReports
-          .filter(spot => spot.spot_name !== bestSpot.spot_name)
-          .map(spot => ({
+        // Format additional spots (2nd and 3rd best)
+        const additionalSpots = bestSpots.slice(1).map(spot => {
+          const tideData = spot.tideData;
+          console.log(`[TIDE_DATA] Spot ${spot.spot_name}: ${tideData ? `Tide: ${tideData.tide}ft (${tideData.tideTrend})` : 'No tide data available'}`);
+          return {
             name: spot.spot_name,
             highlight: spot.match_summary,
+            reason: spot.match_conditions,
             wave: spot.wave_height,
             conditions: spot.conditions,
             skill: spot.skill_match,
             board: spot.best_board,
+            air: spot.air_temp,
+            cloud: spot.clouds,
+            rain: spot.rain_chance,
+            wind: spot.wind_description,
+            water: spot.water_temp,
+            wetsuit: spot.gear,
             best_time: spot.prime_time,
             alt_time: spot.backup_time,
-            tide: spot.weatherData?.current?.buoyData?.tide || 'No tide data available'
-          }));
+            tide: tideData ? {
+              current: `${tideData.tide}ft`,
+              trend: tideData.tideTrend,
+              nextHigh: tideData.nextHighTide ? {
+                time: tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                height: `${tideData.nextHighTide.height}ft`
+              } : null,
+              nextLow: tideData.nextLowTide ? {
+                time: tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                height: `${tideData.nextLowTide.height}ft`
+              } : null,
+              range: tideData.tideRange ? {
+                min: `${tideData.tideRange.min}ft`,
+                max: `${tideData.tideRange.max}ft`,
+                range: `${tideData.tideRange.range}ft`
+              } : null
+            } : 'No tide data available',
+            swell: spot.swell_data
+          };
+        });
 
-        // Prepare template data
+        // Prepare email template data
         const templateData = {
-          user_name: user.displayName || 'Surfer',
           featured_spot: featuredSpot,
-          spots: otherSpots,
-          total_spots: validReports.length,
+          additional_spots: additionalSpots,
+          user_name: userData.name || 'Surfer',
+          date: today.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            timeZone: 'America/Los_Angeles'
+          }),
           diary_url: "https://kook-cast.com/diary/new-session",
           subject: `${featuredSpot.name} is looking 🔥 today!`
         };
@@ -2288,7 +2795,7 @@ exports.api = onRequest({
   memory: "256MiB",
   timeoutSeconds: 60,
   minInstances: 0,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey, worldTidesApiKey],
   invoker: "public",
   concurrency: 1
 }, app);
@@ -2331,6 +2838,309 @@ app.post('/fix-lock', async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: 'Failed to fix lock state',
+      error: error.message
+    });
+  }
+});
+
+// Test endpoint for tide data
+app.post('/test-tide-data', async (req, res) => {
+  try {
+    const { latitude, longitude, location } = req.body;
+    
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Latitude and longitude are required'
+      });
+    }
+
+    console.log(`[TIDE_TEST] Testing tide data for coordinates ${latitude},${longitude}`);
+    
+    // Find closest station
+    const closestStation = BuoyData.findClosestStation(latitude, longitude);
+    if (!closestStation) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'No nearby station found'
+      });
+    }
+
+    console.log(`[TIDE_TEST] Using station ${closestStation.name} (${closestStation.id})`);
+    
+    // Fetch station data
+    const stationData = await BuoyData.fetchStationData(closestStation.id, latitude, longitude);
+    if (!stationData) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Failed to fetch station data'
+      });
+    }
+
+    // Get enhanced tide data
+    const enhancedData = await BuoyData.enhanceTideData(stationData, latitude, longitude);
+    
+    res.json({
+      status: 'success',
+      location: location || 'Unknown',
+      station: closestStation.name,
+      tide_data: {
+        current: enhancedData.tide ? `${enhancedData.tide}ft` : 'No current tide data',
+        trend: enhancedData.tideTrend || 'unknown',
+        nextHigh: enhancedData.nextHighTide ? {
+          time: enhancedData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          height: `${enhancedData.nextHighTide.height}ft`
+        } : null,
+        nextLow: enhancedData.nextLowTide ? {
+          time: enhancedData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          height: `${enhancedData.nextLowTide.height}ft`
+        } : null,
+        range: enhancedData.tideRange ? {
+          min: `${enhancedData.tideRange.min}ft`,
+          max: `${enhancedData.tideRange.max}ft`,
+          range: `${enhancedData.tideRange.range}ft`
+        } : null
+      }
+    });
+  } catch (error) {
+    console.error('[TIDE_TEST] Error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch tide data',
+      error: error.message
+    });
+  }
+});
+
+// Test endpoint for premium email data without sending
+app.post('/test-premium-data', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Email is required'
+      });
+    }
+
+    // Get user data from Firestore
+    const userSnapshot = await admin.firestore()
+      .collection('users')
+      .where('email', '==', email)
+      .limit(1)
+      .get();
+
+    if (userSnapshot.empty) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    const userDoc = userSnapshot.docs[0];
+    const user = userDoc.data();
+    const userId = userDoc.id;
+
+    console.log(`[TEST_PREMIUM_DATA] Processing user ${email} (${userId}) with premium status: ${user.premium}`);
+
+    // Get user's surf locations
+    const userData = await getUserData(userId);
+    const surfLocations = userData.surfLocations || [];
+
+    if (surfLocations.length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User has no surf locations set'
+      });
+    }
+
+    const openAiApiKey = openaiApiKey.value();
+
+    // Process all locations in parallel
+    console.log(`[TEST_PREMIUM_DATA] Processing ${surfLocations.length} locations in parallel`);
+    const startTime = Date.now();
+    
+    const spotReports = await Promise.all(
+      surfLocations.map(async (location) => {
+        if (!location) return null;
+        console.log(`[TEST_PREMIUM_DATA] Processing location: ${location}`);
+        return generateSurfReport(
+          location, 
+          userData.surferType, 
+          userId, 
+          openAiApiKey, 
+          userData
+        );
+      })
+    );
+
+    const endTime = Date.now();
+    console.log(`[TEST_PREMIUM_DATA] Parallel processing took ${endTime - startTime}ms`);
+
+    // Filter out any null results
+    const validReports = spotReports.filter(report => report !== null);
+    console.log(`[TEST_PREMIUM_DATA] Generated ${validReports.length} valid reports`);
+
+    // Score each spot based on multiple factors
+    const scoredSpots = validReports.map(spot => {
+      // Get skill match percentage
+      const skillMatch = parseInt(spot.skill_match.replace('%', ''));
+      
+      // Get tide data
+      const tideData = spot.weatherData?.current?.buoyData;
+      const tideScore = tideData ? {
+        current: tideData.tide,
+        trend: tideData.tideTrend,
+        nextHigh: tideData.nextHighTide,
+        nextLow: tideData.nextLowTide,
+        range: tideData.tideRange
+      } : null;
+      
+      // Get wave data
+      const waveData = spot.weatherData?.current;
+      const waveScore = waveData ? {
+        height: waveData.waveHeight,
+        period: waveData.swellPeriod,
+        direction: waveData.swellDirection
+      } : null;
+      
+      // Get wind data
+      const windData = spot.weatherData?.current;
+      const windScore = windData ? {
+        speed: windData.windSpeed,
+        direction: windData.windDirection,
+        gusts: windData.windGusts
+      } : null;
+      
+      // Calculate overall score
+      let overallScore = skillMatch; // Base score on skill match
+      
+      // Add tide score if available
+      if (tideScore) {
+        if (tideScore.trend === 'rising') overallScore += 10;
+        if (tideScore.range && tideScore.range.range > 2 && tideScore.range.range < 6) overallScore += 5;
+      }
+      
+      // Add wave score if available
+      if (waveScore) {
+        if (waveScore.height > 2 && waveScore.height < 6) overallScore += 10;
+        if (waveScore.period > 8) overallScore += 5;
+      }
+      
+      // Add wind score if available
+      if (windScore) {
+        if (windScore.speed < 10) overallScore += 10;
+        if (windScore.direction > 180 && windScore.direction < 360) overallScore += 5;
+      }
+      
+      return {
+        ...spot,
+        score: overallScore,
+        tideData,
+        waveData,
+        windData
+      };
+    });
+
+    // Sort spots by score and take top 3
+    const bestSpots = scoredSpots
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+
+    console.log(`[TEST_PREMIUM_DATA] Selected top 3 spots:`, 
+      bestSpots.map(spot => `${spot.spot_name} (Score: ${spot.score})`));
+
+    // Format the data as it would appear in the email
+    const emailData = {
+      featured_spot: {
+        name: bestSpots[0].spot_name,
+        highlight: bestSpots[0].match_summary,
+        reason: bestSpots[0].match_conditions,
+        wave: bestSpots[0].wave_height,
+        conditions: bestSpots[0].conditions,
+        skill: bestSpots[0].skill_match,
+        board: bestSpots[0].best_board,
+        air: bestSpots[0].air_temp,
+        cloud: bestSpots[0].clouds,
+        rain: bestSpots[0].rain_chance,
+        wind: bestSpots[0].wind_description,
+        water: bestSpots[0].water_temp,
+        wetsuit: bestSpots[0].gear,
+        best_time: bestSpots[0].prime_time,
+        alt_time: bestSpots[0].backup_time,
+        tip1: bestSpots[0].tip1,
+        tip2: bestSpots[0].tip2,
+        tip3: bestSpots[0].tip3,
+        tide: bestSpots[0].tideData ? {
+          current: `${bestSpots[0].tideData.tide}ft`,
+          trend: bestSpots[0].tideData.tideTrend,
+          nextHigh: bestSpots[0].tideData.nextHighTide ? {
+            time: bestSpots[0].tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            height: `${bestSpots[0].tideData.nextHighTide.height}ft`
+          } : null,
+          nextLow: bestSpots[0].tideData.nextLowTide ? {
+            time: bestSpots[0].tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            height: `${bestSpots[0].tideData.nextLowTide.height}ft`
+          } : null,
+          range: bestSpots[0].tideData.tideRange ? {
+            min: `${bestSpots[0].tideData.tideRange.min}ft`,
+            max: `${bestSpots[0].tideData.tideRange.max}ft`,
+            range: `${bestSpots[0].tideData.tideRange.range}ft`
+          } : null
+        } : 'No tide data available'
+      },
+      other_spots: bestSpots.slice(1).map(spot => ({
+        name: spot.spot_name,
+        highlight: spot.match_summary,
+        wave: spot.wave_height,
+        conditions: spot.conditions,
+        skill: spot.skill_match,
+        board: spot.best_board,
+        best_time: spot.prime_time,
+        alt_time: spot.backup_time,
+        tide: spot.tideData ? {
+          current: `${spot.tideData.tide}ft`,
+          trend: spot.tideData.tideTrend,
+          nextHigh: spot.tideData.nextHighTide ? {
+            time: spot.tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            height: `${spot.tideData.nextHighTide.height}ft`
+          } : null,
+          nextLow: spot.tideData.nextLowTide ? {
+            time: spot.tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            height: `${spot.tideData.nextLowTide.height}ft`
+          } : null,
+          range: spot.tideData.tideRange ? {
+            min: `${spot.tideData.tideRange.min}ft`,
+            max: `${spot.tideData.tideRange.max}ft`,
+            range: `${spot.tideData.tideRange.range}ft`
+          } : null
+        } : 'No tide data available'
+      })),
+      debug_info: {
+        total_spots: validReports.length,
+        processing_time_ms: endTime - startTime,
+        spot_scores: bestSpots.map(spot => ({
+          name: spot.spot_name,
+          score: spot.score,
+          skill_match: spot.skill_match,
+          tide_data: spot.tideData,
+          wave_data: spot.waveData,
+          wind_data: spot.windData
+        }))
+      }
+    };
+
+    res.json({
+      status: 'success',
+      message: 'Premium email data generated successfully',
+      data: emailData
+    });
+  } catch (error) {
+    console.error('[TEST_PREMIUM_DATA] Error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to generate premium email data',
       error: error.message
     });
   }
