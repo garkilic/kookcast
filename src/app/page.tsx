@@ -207,7 +207,12 @@ export default function Home() {
       {/* Header */}
       <header className="px-4 py-4 sm:py-6 mx-auto max-w-7xl sm:px-6 lg:px-8">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl sm:text-3xl font-bold text-primary-600">KookCast</h1>
+          <button 
+            onClick={() => router.push('/')}
+            className="text-2xl sm:text-3xl font-bold text-primary-600 hover:text-primary-700 transition-colors"
+          >
+            KookCast
+          </button>
           <div className="flex items-center space-x-4">
             {isAuthenticated ? (
               <button 
@@ -243,6 +248,12 @@ export default function Home() {
               className="text-sm sm:text-base text-secondary-600 hover:text-primary-600"
             >
               Pricing
+            </button>
+            <button 
+              onClick={() => router.push('/about')}
+              className="text-sm sm:text-base text-secondary-600 hover:text-primary-600"
+            >
+              About
             </button>
           </div>
         </div>
