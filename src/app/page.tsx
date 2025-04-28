@@ -264,6 +264,9 @@ export default function Home() {
         {/* Hero Section */}
         <section className="px-4 pt-8 sm:pt-12 pb-12 sm:pb-16 mx-auto max-w-7xl sm:px-6 lg:px-8">
           <div className="text-center">
+            <div className="mb-2 sm:mb-4 inline-flex items-center px-3 sm:px-4 py-1.5 rounded-full bg-secondary-100 text-secondary-700 text-sm font-medium">
+              Version 0.5
+            </div>
             <div className="mb-6 sm:mb-8 inline-flex items-center px-3 sm:px-4 py-1.5 rounded-full bg-primary-50 text-primary-700 text-sm font-medium">
               <span className="mr-2">🤖</span>
               AI-Powered Personal Surf Coach
