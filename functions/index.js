@@ -1077,13 +1077,45 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
 
 // Scheduled function to send surf reports
 exports.sendSurfReports = onSchedule({
-  schedule: '0 5 * * *',
-  timeZone: 'America/Los_Angeles',
-  retryCount: 3,
+  schedule: '0 3 * * *',  // 3 AM Iowa time = 5 AM LA time
+  timeZone: 'America/Chicago',  // Iowa timezone
+  retryCount: 0,
   secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey],
   memory: '256MiB'
 }, async (event) => {
   try {
+    // Get today's date in LA timezone
+    const laDate = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+    const today = new Date(laDate);
+    const dateKey = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+    // Check for existing lock using a transaction
+    const lockRef = admin.firestore().collection('locks').doc('regularReports');
+    
+    const result = await admin.firestore().runTransaction(async (transaction) => {
+      const lockDoc = await transaction.get(lockRef);
+      const lockData = lockDoc.data();
+      
+      // If lock exists and is from today, skip
+      if (lockData?.date === dateKey) {
+        console.log('[SCHEDULED_REPORTS] Skipping - already sent today');
+        return { shouldRun: false };
+      }
+      
+      // Set new lock with today's date
+      transaction.set(lockRef, {
+        date: dateKey,
+        lastRun: admin.firestore.FieldValue.serverTimestamp(),
+        status: 'running'
+      });
+      
+      return { shouldRun: true };
+    });
+
+    if (!result.shouldRun) {
+      return;
+    }
+
     console.log('[SCHEDULED_REPORTS] Starting daily surf report distribution');
     
     // Get all users with emailVerified = true
@@ -1201,6 +1233,14 @@ exports.sendSurfReports = onSchedule({
       }
     }
 
+    // Update lock with completion status
+    await lockRef.update({
+      status: 'completed',
+      successCount,
+      errorCount,
+      completedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
     console.log('[SCHEDULED_REPORTS_COMPLETE]', {
       total_users: usersSnapshot.size,
       success_count: successCount,
@@ -1211,7 +1251,17 @@ exports.sendSurfReports = onSchedule({
     return { success: true, message: 'Surf reports sent successfully' };
   } catch (error) {
     console.error('[SCHEDULED_REPORTS_ERROR]', error);
-    throw error;
+    // Update lock with error status
+    try {
+      await admin.firestore().collection('locks').doc('regularReports').update({
+        status: 'error',
+        error: error.message,
+        errorAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (lockError) {
+      console.error('[SCHEDULED_REPORTS] Error updating lock:', lockError);
+    }
+    return { success: false, error: error.message };
   }
 });
 
@@ -1424,31 +1474,40 @@ exports.testSendEmails = onRequest({
       console.log(`[TEST_SEND_EMAILS] Sending premium email for ${email}`);
       // Premium user flow - get up to 5 spots and find best match
       const locations = surfLocations.slice(0, 5);
-      const spotReports = [];
+      
+      // Process all locations in parallel
+      console.log(`[TEST_SEND_EMAILS] Processing ${locations.length} locations in parallel for ${email}`);
+      const startTime = Date.now();
+      
+      const spotReports = await Promise.all(
+        locations.map(async (location) => {
+          if (!location) return null;
+          console.log(`[TEST_SEND_EMAILS] Processing location: ${location}`);
+          const report = await generateSurfReport(
+            location, 
+            userData.surferType, 
+            userId, 
+            openAiApiKey, 
+            userData
+          );
+          console.log(`[TEST_SEND_EMAILS] Completed location: ${location}`);
+          return report;
+        })
+      );
 
-      // Generate reports for each location
-      for (const location of locations) {
-        if (!location) continue;
-        
-        console.log(`[TEST_SEND_EMAILS] Generating report for ${email} - Location: ${location}`);
-        
-        const surfReport = await generateSurfReport(
-          location, 
-          userData.surferType, 
-          userId, 
-          openAiApiKey, 
-          userData
-        );
+      const endTime = Date.now();
+      console.log(`[TEST_SEND_EMAILS] Parallel processing took ${endTime - startTime}ms`);
 
-        spotReports.push(surfReport);
-      }
+      // Filter out any null results
+      const validReports = spotReports.filter(report => report !== null);
+      console.log(`[TEST_SEND_EMAILS] Generated ${validReports.length} valid reports`);
 
       // Find the best spot based on skill match percentage
-      const bestSpot = spotReports.reduce((best, current) => {
+      const bestSpot = validReports.reduce((best, current) => {
         const currentMatch = parseInt(current.skill_match.replace('%', ''));
         const bestMatch = parseInt(best.skill_match.replace('%', ''));
         return currentMatch > bestMatch ? current : best;
-      }, spotReports[0]);
+      }, validReports[0]);
 
       // Format the featured spot
       const featuredSpot = {
@@ -1473,7 +1532,7 @@ exports.testSendEmails = onRequest({
       };
 
       // Format remaining spots
-      const otherSpots = spotReports
+      const otherSpots = validReports
         .filter(spot => spot.spot_name !== bestSpot.spot_name)
         .map(spot => ({
           name: spot.spot_name,
@@ -1491,12 +1550,13 @@ exports.testSendEmails = onRequest({
         user_name: user.displayName || 'Surfer',
         featured_spot: featuredSpot,
         spots: otherSpots,
-        total_spots: spotReports.length,
+        total_spots: validReports.length,
         diary_url: "https://kook-cast.com/diary/new-session",
         subject: `${featuredSpot.name} is looking 🔥 today!`
       };
 
       // Send ONE premium email
+      console.log(`[TEST_SEND_EMAILS] Sending single email to ${email} with ${validReports.length} locations`);
       await sgMail.send({
         to: email,
         from: {
@@ -1508,11 +1568,16 @@ exports.testSendEmails = onRequest({
         dynamicTemplateData: templateData
       });
 
-      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent premium email to ${email} with ${spotReports.length} spots`);
+      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent premium email to ${email} with ${validReports.length} spots`);
       
       return res.json({
         status: 'success',
-        message: 'Test email sent successfully'
+        message: 'Test email sent successfully',
+        details: {
+          locations_processed: locations.length,
+          valid_reports: validReports.length,
+          processing_time_ms: endTime - startTime
+        }
       });
     } else {
       // Regular user flow - only send email for their selected spot
@@ -1570,6 +1635,7 @@ exports.testSendEmails = onRequest({
       };
 
       // Send ONE regular email
+      console.log(`[TEST_SEND_EMAILS] Sending single email to ${email} for spot ${formattedLocation}`);
       await sgMail.send({
         to: email,
         from: {
@@ -1585,7 +1651,11 @@ exports.testSendEmails = onRequest({
       
       return res.json({
         status: 'success',
-        message: 'Test email sent successfully'
+        message: 'Test email sent successfully',
+        details: {
+          location: formattedLocation,
+          skill_match: surfReport.skill_match
+        }
       });
     }
   } catch (error) {
@@ -1600,13 +1670,53 @@ exports.testSendEmails = onRequest({
 
 // Premium email function
 exports.sendPremiumSurfReports = onSchedule({
-  schedule: '0 5 * * *',
-  timeZone: 'America/Los_Angeles',
-  retryCount: 3,
+  schedule: '0 3 * * *',  // 3 AM Iowa time = 5 AM LA time
+  timeZone: 'America/Chicago',  // Iowa timezone
+  retryCount: 0,
   secrets: [sendgridApiKey, sendgridFromEmail, sendgridPremiumTemplateId, openaiApiKey],
   memory: '256MiB'
 }, async (event) => {
   try {
+    // Get today's date in LA timezone
+    const laDate = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+    const today = new Date(laDate);
+    const dateKey = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+    // Function states
+    const functionState = {
+      RUNNING: 'running',
+      COMPLETED: 'completed',
+      FAILED: 'failed'
+    };
+
+    // Check for existing lock using a transaction
+    const lockRef = admin.firestore().collection('locks').doc('premiumReports');
+    
+    const result = await admin.firestore().runTransaction(async (transaction) => {
+      const lockDoc = await transaction.get(lockRef);
+      const lockData = lockDoc.data();
+      
+      // Check both date and state
+      if (lockData?.date === dateKey && lockData?.state === functionState.COMPLETED) {
+        console.log('[PREMIUM_REPORTS] Skipping - already completed today');
+        return { shouldRun: false };
+      }
+      
+      // Set new lock with today's date and state
+      transaction.set(lockRef, {
+        date: dateKey,
+        state: functionState.RUNNING,
+        lastRun: admin.firestore.FieldValue.serverTimestamp(),
+        instanceId: Math.random().toString(36).substring(7)
+      });
+      
+      return { shouldRun: true };
+    });
+
+    if (!result.shouldRun) {
+      return;
+    }
+
     console.log('[PREMIUM_REPORTS] Starting premium surf report distribution');
     
     // Get all premium users with emailVerified = true
@@ -1628,10 +1738,18 @@ exports.sendPremiumSurfReports = onSchedule({
     // Process each premium user
     let successCount = 0;
     let errorCount = 0;
+    const processedUsers = new Set();
     
     for (const userDoc of usersSnapshot.docs) {
       const user = userDoc.data() || {};
       const userId = userDoc.id;
+      
+      // Skip if already processed
+      if (processedUsers.has(userId)) {
+        console.log(`[PREMIUM_REPORTS] Skipping already processed user ${userId}`);
+        continue;
+      }
+      processedUsers.add(userId);
       
       try {
         // Get user data with defaults
@@ -1645,57 +1763,38 @@ exports.sendPremiumSurfReports = onSchedule({
 
         // Get up to 5 surf locations
         const locations = userData.surfLocations.slice(0, 5);
-        const spotReports = [];
+        
+        // Process all locations in parallel
+        console.log(`[PROCESSING_PREMIUM_USER] Generating reports for ${user.email} - ${locations.length} locations`);
+        const startTime = Date.now();
+        
+        const spotReports = await Promise.all(
+          locations.map(async (location) => {
+            if (!location) return null;
+            console.log(`[PROCESSING_LOCATION] ${user.email} - ${location}`);
+            return generateSurfReport(
+              location, 
+              userData.surferType, 
+              userId, 
+              openAiApiKey, 
+              userData
+            );
+          })
+        );
 
-        // Generate reports for each location
-        for (const location of locations) {
-          if (!location) continue;
-          
-          console.log(`[PROCESSING_PREMIUM_USER] Generating report for ${user.email} - Location: ${location}`);
-          
-          const surfReport = await generateSurfReport(
-            location, 
-            userData.surferType, 
-            userId, 
-            openAiApiKey, 
-            userData
-          );
+        const endTime = Date.now();
+        console.log(`[PROCESSING_TIME] Took ${endTime - startTime}ms to process ${locations.length} locations`);
 
-          // Format the report for the template
-          const formattedReport = {
-            spot_name: formatLocation(surfReport.location),
-            match_summary: surfReport.match_summary,
-            match_conditions: surfReport.match_conditions,
-            wave_height: surfReport.wave_height,
-            conditions: surfReport.conditions,
-            skill_match: surfReport.skill_match,
-            best_board: surfReport.best_board,
-            air_temp: surfReport.air_temp,
-            clouds: surfReport.clouds,
-            rain_chance: surfReport.rain_chance,
-            wind_description: surfReport.wind_description,
-            water_temp: surfReport.water_temp,
-            gear: surfReport.gear,
-            prime_time: surfReport.prime_time,
-            prime_notes: surfReport.prime_notes,
-            backup_time: surfReport.backup_time,
-            backup_notes: surfReport.backup_notes,
-            tip1: surfReport.tip1,
-            tip2: surfReport.tip2,
-            tip3: surfReport.tip3,
-            daily_challenge: surfReport.daily_challenge,
-            skill_focus: surfReport.skill_focus
-          };
-
-          spotReports.push(formattedReport);
-        }
+        // Filter out any null results
+        const validReports = spotReports.filter(report => report !== null);
+        console.log(`[VALID_REPORTS] Generated ${validReports.length} valid reports`);
 
         // Find the best spot based on skill match percentage
-        const bestSpot = spotReports.reduce((best, current) => {
+        const bestSpot = validReports.reduce((best, current) => {
           const currentMatch = parseInt(current.skill_match.replace('%', ''));
           const bestMatch = parseInt(best.skill_match.replace('%', ''));
           return currentMatch > bestMatch ? current : best;
-        }, spotReports[0]);
+        }, validReports[0]);
 
         // Format the featured spot
         const featuredSpot = {
@@ -1720,7 +1819,7 @@ exports.sendPremiumSurfReports = onSchedule({
         };
 
         // Format remaining spots
-        const otherSpots = spotReports
+        const otherSpots = validReports
           .filter(spot => spot.spot_name !== bestSpot.spot_name)
           .map(spot => ({
             name: spot.spot_name,
@@ -1738,13 +1837,14 @@ exports.sendPremiumSurfReports = onSchedule({
           user_name: user.displayName || 'Surfer',
           featured_spot: featuredSpot,
           spots: otherSpots,
-          total_spots: spotReports.length,
+          total_spots: validReports.length,
           diary_url: "https://kook-cast.com/diary/new-session",
           subject: `${featuredSpot.name} is looking 🔥 today!`
         };
 
-        // Send premium email
-        await sgMail.send({
+        // Send ONE premium email
+        console.log(`[SENDING_EMAIL] Sending single email to ${user.email} with ${validReports.length} locations`);
+        const emailResult = await sgMail.send({
           to: user.email,
           from: {
             email: fromEmail,
@@ -1755,13 +1855,39 @@ exports.sendPremiumSurfReports = onSchedule({
           dynamicTemplateData: templateData
         });
 
-        console.log(`[PREMIUM_SUCCESS] Sent report to ${user.email} for ${spotReports.length} locations`);
+        // Verify email was sent successfully
+        if (!emailResult || !emailResult[0]?.statusCode === 202) {
+          throw new Error('Failed to send email');
+        }
+
+        console.log(`[EMAIL_SENT] Successfully sent email to ${user.email}`);
         successCount++;
       } catch (error) {
-        console.error(`[PREMIUM_ERROR] Failed to process user ${user.email}:`, error);
+        console.error(`[USER_ERROR] Failed to process user ${user.email}:`, error);
         errorCount++;
+        
+        // Update user's status in Firestore
+        try {
+          await admin.firestore()
+            .collection('users')
+            .doc(userId)
+            .update({
+              lastEmailError: error.message,
+              lastEmailAttempt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (updateError) {
+          console.error(`[UPDATE_ERROR] Failed to update user status for ${user.email}:`, updateError);
+        }
       }
     }
+
+    // Update lock with completion status
+    await lockRef.update({
+      state: functionState.COMPLETED,
+      successCount,
+      errorCount,
+      completedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
     console.log('[PREMIUM_REPORTS_COMPLETE]', {
       total_users: usersSnapshot.size,
@@ -1773,7 +1899,17 @@ exports.sendPremiumSurfReports = onSchedule({
     return { success: true, message: 'Premium surf reports sent successfully' };
   } catch (error) {
     console.error('[PREMIUM_REPORTS_ERROR]', error);
-    throw error;
+    // Update lock with error status
+    try {
+      await admin.firestore().collection('locks').doc('premiumReports').update({
+        state: functionState.FAILED,
+        error: error.message,
+        errorAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (lockError) {
+      console.error('[PREMIUM_REPORTS] Error updating lock:', lockError);
+    }
+    return { success: false, error: error.message };
   }
 });
 
