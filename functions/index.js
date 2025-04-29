@@ -396,7 +396,28 @@ app.post('/trigger-scheduled', async (req, res) => {
 
         // Prepare email template data
         const templateData = {
-          featured_spot: featuredSpot,
+          featured_spot: {
+            name: featuredSpot.spot_name,
+            highlight: featuredSpot.match_summary,
+            reason: featuredSpot.match_conditions,
+            wave: featuredSpot.wave_height,
+            conditions: featuredSpot.conditions,
+            skill: featuredSpot.skill_match,
+            board: featuredSpot.best_board,
+            air: featuredSpot.air_temp,
+            cloud: featuredSpot.clouds,
+            rain: featuredSpot.rain_chance,
+            wind: featuredSpot.wind_description,
+            water: featuredSpot.water_temp,
+            wetsuit: featuredSpot.gear,
+            best_time: featuredSpot.prime_time,
+            alt_time: featuredSpot.backup_time,
+            tip1: featuredSpot.tip1,
+            tip2: featuredSpot.tip2,
+            tip3: featuredSpot.tip3,
+            daily_challenge: featuredSpot.daily_challenge,
+            skill_focus: featuredSpot.skill_focus
+          },
           additional_spots: additionalSpots,
           user_name: userData.name || 'Surfer',
           date: today.toLocaleDateString('en-US', { 
@@ -407,7 +428,7 @@ app.post('/trigger-scheduled', async (req, res) => {
             timeZone: 'America/Los_Angeles'
           }),
           diary_url: "https://kook-cast.com/diary/new-session",
-          subject: `${featuredSpot.name} is looking 🔥 today!`
+          subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`
         };
 
         // Send ONE premium email
@@ -418,7 +439,7 @@ app.post('/trigger-scheduled', async (req, res) => {
             email: fromEmail,
             name: "KookCast"
           },
-          subject: `${featuredSpot.name} is looking 🔥 today!`,
+          subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`,
           templateId: premiumTemplateId,
           dynamicTemplateData: templateData
         });
@@ -841,23 +862,31 @@ const WeatherProcessor = {
     // Convert temperature from Celsius to Fahrenheit
     const convertToFahrenheit = (celsius) => celsius ? Math.round((celsius * 9/5) + 32) : null;
 
+    // Ensure we have valid data for current hour
+    const currentHour = currentHourIndex || 0;
+    
+    // Get wave data from marine data if buoy data is missing
+    const waveHeight = buoyData?.waveHeight || convertToFeet(marineData?.hourly?.wave_height?.[currentHour]);
+    const swellPeriod = buoyData?.swellPeriod || marineData?.hourly?.swell_wave_period?.[currentHour];
+    const waterTemp = buoyData?.waterTemperature || convertToFahrenheit(marineData?.hourly?.water_temperature?.[currentHour]);
+
     return {
       current: {
-        waveHeight: convertToFeet(marineData.hourly.wave_height[currentHourIndex]),
-        swellHeight: convertToFeet(marineData.hourly.swell_wave_height[currentHourIndex]),
-        windWaveHeight: convertToFeet(marineData.hourly.wind_wave_height[currentHourIndex]),
-        swellDirection: marineData.hourly.swell_wave_direction[currentHourIndex],
-        windWaveDirection: marineData.hourly.wind_wave_direction[currentHourIndex],
-        swellPeriod: marineData.hourly.swell_wave_period[currentHourIndex],
-        swellPeakPeriod: marineData.hourly.swell_wave_peak_period[currentHourIndex],
-        temperature: convertToFahrenheit(weatherData.hourly.temperature_2m[currentHourIndex]),
-        windSpeed: convertToMph(weatherData.hourly.windspeed_10m[currentHourIndex]),
-        windDirection: weatherData.hourly.winddirection_10m[currentHourIndex],
-        windGusts: convertToMph(weatherData.hourly.windgusts_10m[currentHourIndex]),
+        waveHeight,
+        swellHeight: convertToFeet(marineData?.hourly?.swell_wave_height?.[currentHour]),
+        windWaveHeight: convertToFeet(marineData?.hourly?.wind_wave_height?.[currentHour]),
+        swellDirection: marineData?.hourly?.swell_wave_direction?.[currentHour],
+        windWaveDirection: marineData?.hourly?.wind_wave_direction?.[currentHour],
+        swellPeriod,
+        swellPeakPeriod: marineData?.hourly?.swell_wave_peak_period?.[currentHour],
+        temperature: convertToFahrenheit(weatherData?.hourly?.temperature_2m?.[currentHour]),
+        windSpeed: convertToMph(weatherData?.hourly?.windspeed_10m?.[currentHour]),
+        windDirection: weatherData?.hourly?.winddirection_10m?.[currentHour],
+        windGusts: convertToMph(weatherData?.hourly?.windgusts_10m?.[currentHour]),
         buoyData: buoyData ? {
-          waterTemperature: buoyData.data?.waterTemperature ? convertToFahrenheit(buoyData.data.waterTemperature) : null,
-          waveHeight: buoyData.data?.waveHeight ? convertToFeet(buoyData.data.waveHeight) : null,
-          wavePeriod: buoyData.data?.dominantWavePeriod || null,
+          waterTemperature: waterTemp,
+          waveHeight,
+          wavePeriod: swellPeriod,
           tide: buoyData.tide || null,
           tideTrend: buoyData.tideTrend || null,
           nextHighTide: buoyData.nextHighTide || null,
@@ -866,12 +895,12 @@ const WeatherProcessor = {
         } : null
       },
       today: {
-        maxWaveHeight: convertToFeet(marineData.daily.wave_height_max[0]),
-        maxSwellHeight: convertToFeet(marineData.daily.swell_wave_height_max[0]),
-        maxWindWaveHeight: convertToFeet(marineData.daily.wind_wave_height_max[0]),
-        maxTemp: convertToFahrenheit(weatherData.daily.temperature_2m_max[0]),
-        minTemp: convertToFahrenheit(weatherData.daily.temperature_2m_min[0]),
-        maxWindSpeed: convertToMph(weatherData.daily.windspeed_10m_max[0])
+        maxWaveHeight: convertToFeet(marineData?.daily?.wave_height_max?.[0]),
+        maxSwellHeight: convertToFeet(marineData?.daily?.swell_wave_height_max?.[0]),
+        maxWindWaveHeight: convertToFeet(marineData?.daily?.wind_wave_height_max?.[0]),
+        maxTemp: convertToFahrenheit(weatherData?.daily?.temperature_2m_max?.[0]),
+        minTemp: convertToFahrenheit(weatherData?.daily?.temperature_2m_min?.[0]),
+        maxWindSpeed: convertToMph(weatherData?.daily?.windspeed_10m_max?.[0])
       }
     };
   }
@@ -1190,6 +1219,19 @@ const SurfReportGenerator = {
     const formattedDate = currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
     const formattedLocation = formatLocation(location);
     
+    console.log('[AI_REPORT] Generating report for:', {
+      location: formattedLocation,
+      date: formattedDate,
+      hasUserData: !!userData,
+      weatherDataKeys: Object.keys(weatherData || {}),
+      currentConditions: weatherData?.current ? {
+        waveHeight: weatherData.current.waveHeight,
+        swellPeriod: weatherData.current.swellPeriod,
+        waterTemp: weatherData.current.buoyData?.waterTemperature,
+        tide: weatherData.current.buoyData?.tide
+      } : null
+    });
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview",
       messages: [
@@ -1302,6 +1344,16 @@ const SurfReportGenerator = {
     });
 
     const report = JSON.parse(completion.choices[0].message.content);
+    
+    console.log('[AI_REPORT] Generated report:', {
+      spot_name: report.spot_name,
+      skill_match: report.skill_match,
+      wave_height: report.wave_height,
+      conditions: report.conditions,
+      has_tips: !!(report.tip1 && report.tip2 && report.tip3),
+      has_challenge: !!report.daily_challenge,
+      has_skill_focus: !!report.skill_focus
+    });
     
     // Ensure go_today is always a valid value
     const validGoToday = ['yes', 'no', 'maybe'].includes(report.go_today?.toLowerCase()) 
@@ -1534,9 +1586,11 @@ async function getUserData(userId) {
   try {
     const userDoc = await admin.firestore().collection('users').doc(userId).get();
     const userData = userDoc.data() || {};
-    
-    // Get user's surfboards with defaults
-    const boardTypes = Array.isArray(userData.surferPreferences?.boardTypes) ? userData.surferPreferences.boardTypes : [];
+
+    // Use nested surferPreferences for description and boardTypes
+    const surferPreferences = userData.surferPreferences || {};
+    const surfingStyle = surferPreferences.description || 'intermediate';
+    const boardTypes = Array.isArray(surferPreferences.boardTypes) ? surferPreferences.boardTypes : [];
     const boardLabels = {
       shortboard: 'Shortboard',
       longboard: 'Longboard',
@@ -1576,10 +1630,6 @@ async function getUserData(userId) {
       console.error('Error fetching diary entries:', error);
       recentEntries = [];
     }
-
-    // Get user's surfing style and preferences
-    const surferPreferences = userData.surferPreferences || {};
-    const surfingStyle = surferPreferences.description || 'intermediate';
 
     return {
       userBoards: formattedBoards,
@@ -1630,7 +1680,12 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
       WeatherProcessor.fetchWeatherData(coordinates.latitude, coordinates.longitude),
       SurfReportGenerator.fetchBuoyData(coordinates.latitude, coordinates.longitude)
     ]);
-    
+
+    // Validate required data
+    if (!marineData || !weatherData) {
+      throw new Error('Failed to fetch required weather data');
+    }
+
     console.log('[TIDE_DEBUG] Buoy data:', JSON.stringify(buoyData, null, 2));
     
     const formattedData = WeatherProcessor.formatWeatherData(
@@ -1642,6 +1697,11 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
     
     console.log('[TIDE_DEBUG] Formatted data:', JSON.stringify(formattedData?.current?.buoyData, null, 2));
     
+    // Validate formatted data
+    if (!formattedData?.current) {
+      throw new Error('Failed to format weather data');
+    }
+
     const report = await SurfReportGenerator.generateAIReport(location, formattedData, apiKey, userData);
     
     // Ensure tide data is properly passed through
@@ -1656,6 +1716,11 @@ async function generateSurfReport(location, surferType, userId, apiKey, userData
     }
     
     console.log('[TIDE_DEBUG] Report data:', JSON.stringify(report?.weatherData?.current?.buoyData, null, 2));
+    
+    // Validate report data
+    if (!report.spot_name || !report.prime_time || !report.skill_match) {
+      throw new Error('Generated report is missing required fields');
+    }
     
     // Ensure go_today is always included with a valid value
     const validGoToday = ['yes', 'no', 'maybe'].includes(report.go_today?.toLowerCase()) 
@@ -2607,7 +2672,28 @@ exports.sendPremiumSurfReports = onSchedule({
 
         // Prepare email template data
         const templateData = {
-          featured_spot: featuredSpot,
+          featured_spot: {
+            name: featuredSpot.spot_name,
+            highlight: featuredSpot.match_summary,
+            reason: featuredSpot.match_conditions,
+            wave: featuredSpot.wave_height,
+            conditions: featuredSpot.conditions,
+            skill: featuredSpot.skill_match,
+            board: featuredSpot.best_board,
+            air: featuredSpot.air_temp,
+            cloud: featuredSpot.clouds,
+            rain: featuredSpot.rain_chance,
+            wind: featuredSpot.wind_description,
+            water: featuredSpot.water_temp,
+            wetsuit: featuredSpot.gear,
+            best_time: featuredSpot.prime_time,
+            alt_time: featuredSpot.backup_time,
+            tip1: featuredSpot.tip1,
+            tip2: featuredSpot.tip2,
+            tip3: featuredSpot.tip3,
+            daily_challenge: featuredSpot.daily_challenge,
+            skill_focus: featuredSpot.skill_focus
+          },
           additional_spots: additionalSpots,
           user_name: userData.name || 'Surfer',
           date: today.toLocaleDateString('en-US', { 
@@ -2618,7 +2704,7 @@ exports.sendPremiumSurfReports = onSchedule({
             timeZone: 'America/Los_Angeles'
           }),
           diary_url: "https://kook-cast.com/diary/new-session",
-          subject: `${featuredSpot.name} is looking 🔥 today!`
+          subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`
         };
 
         // Send ONE premium email
@@ -2629,7 +2715,7 @@ exports.sendPremiumSurfReports = onSchedule({
             email: fromEmail,
             name: "KookCast"
           },
-          subject: `${featuredSpot.name} is looking 🔥 today!`,
+          subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`,
           templateId: premiumTemplateId,
           dynamicTemplateData: templateData
         });
