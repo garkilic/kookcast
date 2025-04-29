@@ -10,12 +10,11 @@ import { onAuthStateChanged } from 'firebase/auth';
 import BoardSelector from '@/components/BoardSelector';
 
 export default function ProfileSetup() {
-  const [surferType, setSurferType] = useState('');
+  const [surferPreferences, setSurferPreferences] = useState({ description: '', boardTypes: [] as string[] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [spots, setSpots] = useState<SurfSpot[]>([]);
   const [homeBreak, setHomeBreak] = useState('');
-  const [boardTypes, setBoardTypes] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -30,9 +29,11 @@ export default function ProfileSetup() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
-          setSurferType(data.surferType || '');
+          setSurferPreferences({
+            description: data.surferPreferences?.description || '',
+            boardTypes: data.surferPreferences?.boardTypes || []
+          });
           setHomeBreak(data.homeBreak || '');
-          setBoardTypes(data.boardTypes || []);
         }
 
         // Fetch surf spots
@@ -56,9 +57,11 @@ export default function ProfileSetup() {
       if (!auth.currentUser) throw new Error('No user logged in');
 
       await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-        surferType,
+        surferPreferences: {
+          description: surferPreferences.description,
+          boardTypes: surferPreferences.boardTypes
+        },
         homeBreak,
-        boardTypes,
         updatedAt: new Date().toISOString(),
       });
 
@@ -99,8 +102,8 @@ export default function ProfileSetup() {
           </div>
 
           <BoardSelector
-            selectedBoards={boardTypes}
-            onBoardsChange={setBoardTypes}
+            selectedBoards={surferPreferences.boardTypes}
+            onBoardsChange={(boards) => setSurferPreferences(prev => ({ ...prev, boardTypes: boards }))}
           />
 
           <div>
@@ -109,8 +112,8 @@ export default function ProfileSetup() {
             </label>
             <textarea
               id="surferType"
-              value={surferType}
-              onChange={(e) => setSurferType(e.target.value)}
+              value={surferPreferences.description}
+              onChange={(e) => setSurferPreferences(prev => ({ ...prev, description: e.target.value }))}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows={4}
               placeholder="Example: I'm a beginner who loves small, clean waves. I'm working on my pop-up and catching unbroken waves..."
