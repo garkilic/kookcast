@@ -19,6 +19,7 @@
     "@stripe/stripe-js": "^7.2.0",
     "@types/dotenv": "^6.1.1",
     "@types/firebase": "^2.4.32",
+    "@vercel/analytics": "^1.5.0",
     "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
     "firebase": "^11.6.0",
