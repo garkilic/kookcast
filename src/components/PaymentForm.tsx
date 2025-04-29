@@ -35,7 +35,8 @@ const PaymentForm: FC<PaymentFormProps> = ({ onSuccess, onCancel }) => {
         price: 'price_1RIXivCGaqxvNayPFmYvrxxU',
         success_url: window.location.origin + '/dashboard-v2',
         cancel_url: window.location.origin + '/cancel',
-        mode: 'subscription'
+        mode: 'subscription',
+        allow_promotion_codes: true
       });
 
       console.log('Checkout session created, waiting for URL...');

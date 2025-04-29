@@ -55,7 +55,8 @@ const PaymentForm = ({ onSuccess, onCancel }: {
         success_url: window.location.origin + '/dashboard-v2',
         cancel_url: window.location.origin + '/dashboard-v2',
         mode: 'subscription',
-        redirect_mode: 'redirect'
+        redirect_mode: 'redirect',
+        allow_promotion_codes: true
       });
 
       console.log('Checkout session created, waiting for URL...');
