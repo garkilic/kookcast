@@ -427,7 +427,7 @@ app.post('/trigger-scheduled', async (req, res) => {
             day: 'numeric',
             timeZone: 'America/Los_Angeles'
           }),
-          diary_url: "https://kook-cast.com/diary/new-session",
+          diary_url: "https://kook-cast.com/surf-diary/new",
           subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`
         };
 
@@ -706,7 +706,7 @@ app.post('/send', async (req, res) => {
             tip3: surfReport.tip3,
             daily_challenge: surfReport.daily_challenge,
             skill_focus: surfReport.skill_focus,
-            diary_url: "https://kook-cast.com/diary/new-session",
+            diary_url: "https://kook-cast.com/surf-diary/new",
             subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
           };
 
@@ -1879,7 +1879,7 @@ exports.sendSurfReports = onSchedule({
           tip3: surfReport.tip3,
           daily_challenge: surfReport.daily_challenge,
           skill_focus: surfReport.skill_focus,
-          diary_url: "https://kook-cast.com/diary/new-session",
+          diary_url: "https://kook-cast.com/surf-diary/new",
           subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
         };
 
@@ -2291,7 +2291,7 @@ exports.testSendEmails = onRequest({
         featured_spot: featuredSpot,
         spots: otherSpots,
         total_spots: bestSpots.length,
-        diary_url: "https://kook-cast.com/diary/new-session",
+        diary_url: "https://kook-cast.com/surf-diary/new",
         subject: `${conditionEmoji} Go surf at ${bestSpots[0].prime_time} at ${bestSpots[0].spot_name}`
       };
 
@@ -2371,7 +2371,7 @@ exports.testSendEmails = onRequest({
         tip3: surfReport.tip3,
         daily_challenge: surfReport.daily_challenge,
         skill_focus: surfReport.skill_focus,
-        diary_url: "https://kook-cast.com/diary/new-session",
+        diary_url: "https://kook-cast.com/surf-diary/new",
         subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
       };
 
@@ -2703,7 +2703,7 @@ exports.sendPremiumSurfReports = onSchedule({
             day: 'numeric',
             timeZone: 'America/Los_Angeles'
           }),
-          diary_url: "https://kook-cast.com/diary/new-session",
+          diary_url: "https://kook-cast.com/surf-diary/new",
           subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`
         };
 
