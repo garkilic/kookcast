@@ -272,14 +272,19 @@ export default function Home() {
               AI-Powered Personal Surf Coach
             </div>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-secondary-900">
-              Your AI Surf Forecast,<br />
-              <span className="text-primary-600">Personalized Just for You</span>
+              Your Daily Surf Email,<br />
+              <span className="text-primary-600">Tailored to Your Skill Level</span>
             </h1>
             <p className="mt-4 sm:mt-6 text-lg sm:text-xl text-secondary-600 max-w-2xl mx-auto">
-              Daily AI-powered surf forecasts, personalized for you—no apps, no charts, just clear advice in your inbox.
+              Get a personalized surf forecast in your inbox every morning—no apps, no charts, just clear advice for your skill level.
             </p>
             <div className="mt-8 flex flex-col items-center gap-y-4">
               <div className="flex flex-col items-center gap-4 w-full max-w-md">
+                <div className="bg-blue-50 p-4 rounded-lg w-full text-center">
+                  <p className="text-sm text-blue-800">
+                    We'll ask a few quick questions about your surfing experience to personalize your daily forecasts to your skill level.
+                  </p>
+                </div>
                 <form onSubmit={handleEmailSubmit} className="w-full flex flex-col sm:flex-row gap-4">
                   <input
                     type="email"
@@ -632,7 +637,7 @@ export default function Home() {
         {/* Pricing Section */}
         <section id="pricing" className="px-4 py-12 sm:py-16 mx-auto max-w-7xl sm:px-6 lg:px-8">
           <h3 className="text-2xl sm:text-3xl font-bold text-center text-secondary-900 mb-8 sm:mb-12">Choose Your Plan</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 max-w-4xl mx-auto">
+          <div className="grid grid-cols-1 gap-6 sm:gap-8 max-w-4xl mx-auto">
             {/* Free Plan */}
             <div className="p-6 sm:p-8 bg-white rounded-2xl border border-secondary-200 shadow-lg">
               <h3 className="text-2xl font-bold text-secondary-900">Free</h3>
@@ -662,47 +667,6 @@ export default function Home() {
                 Start Free
               </button>
             </div>
-
-            {/* Kook+ Plan */}
-            <div className="p-6 sm:p-8 bg-white rounded-2xl border-2 border-primary-500 shadow-lg relative overflow-hidden">
-              <div className="absolute top-4 right-4 bg-primary-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-                Most Popular
-              </div>
-              <h3 className="text-2xl font-bold text-secondary-900">Kook+</h3>
-              <p className="mt-4 text-secondary-600">Everything in Free, plus:</p>
-              <div className="mt-2 text-2xl font-bold text-secondary-900">$5<span className="text-lg font-normal text-secondary-500">/month</span></div>
-              <ul className="mt-8 space-y-4">
-                <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">🎯</span>
-                  <strong>Track up to 5 surf spots</strong>
-                </li>
-                <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">🤖</span>
-                  AI-powered surf forecasts for your spots
-                </li>
-                <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">📧</span>
-                  Daily email delivery (5:00 AM)
-                </li>
-                <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">📊</span>
-                  Advanced swell and wind pattern insights
-                </li>
-                <li className="flex items-center">
-                  <span className="text-primary-500 mr-2">✨</span>
-                  Access to new features first
-                </li>
-              </ul>
-              <button 
-                onClick={() => {
-                  localStorage.setItem('signupType', 'premium');
-                  setIsSignUpModalOpen(true);
-                }}
-                className="mt-8 w-full px-6 py-3 text-center text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
-              >
-                Start Kook+
-              </button>
-            </div>
           </div>
         </section>
 
@@ -724,9 +688,6 @@ export default function Home() {
                 <span className="text-sm">Works on all devices</span>
               </div>
             </div>
-            <p className="mt-4 text-sm text-secondary-500 text-center">
-              Can't afford Kook+? No problem! Email me at <a href="mailto:griffin@kook-cast.com" className="text-primary-600 hover:text-primary-700">griffin@kook-cast.com</a> and I'll hook you up with a free premium account. Surfing should be accessible to everyone.
-            </p>
           </div>
         </footer>
       </main>
@@ -750,6 +711,16 @@ export default function Home() {
                 >
                   ✕
                 </button>
+              </div>
+              <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  After selecting your spot, we'll ask a few quick questions about your surfing experience and preferences. This helps us provide forecasts that match your skill level and style.
+                </p>
+              </div>
+              <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  After selecting your spot, we'll ask a few quick questions about your surfing experience and preferences. This helps us provide forecasts that match your skill level and style.
+                </p>
               </div>
               {!showConfirmation && (
                 <div className="relative">

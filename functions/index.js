@@ -14,9 +14,7 @@ const xml2js = require('xml2js');
 const sendgridApiKey = defineSecret('SENDGRID_API_KEY');
 const sendgridFromEmail = defineSecret('SENDGRID_FROM_EMAIL');
 const sendgridTemplateId = defineSecret('SENDGRID_TEMPLATE_ID');
-const sendgridPremiumTemplateId = defineSecret('SENDGRID_PREMIUM_TEMPLATE_ID');
 const openaiApiKey = defineSecret('OPENAI_API_KEY');
-const worldTidesApiKey = defineSecret('WORLDTIDES_API_KEY');
 
 // Initialize Express app
 const app = express();
@@ -981,32 +979,17 @@ const BuoyData = {
     return degrees * (Math.PI/180);
   },
 
-  // Tide data enhancement
+  // Fetch station data
   async fetchStationData(stationId, spotLat, spotLon) {
     try {
       console.log(`[TIDE_DATA] Fetching data for station ${stationId} at spot coordinates ${spotLat},${spotLon}`);
       
-      // Try NOAA NDBC first
+      // Try NOAA NDBC
       const ndbcResponse = await fetch(`https://www.ndbc.noaa.gov/data/realtime2/${stationId}.txt`);
       const dataText = await ndbcResponse.text();
       const basicData = this.parseStationData(dataText);
       
-      // If no NDBC data, try WorldTides using spot coordinates
-      try {
-        const worldTidesKey = worldTidesApiKey.value();
-        const worldTidesResponse = await fetch(`https://www.worldtides.info/api/v2?heights&lat=${spotLat}&lon=${spotLon}&key=${worldTidesKey}`);
-        const worldTidesData = await worldTidesResponse.json();
-        
-        if (worldTidesData?.heights?.[0]) {
-          basicData.tide = worldTidesData.heights[0].height;
-          console.log(`[TIDE_DATA] Retrieved tide data from WorldTides for spot: ${basicData.tide}ft`);
-          return await this.enhanceTideData(basicData, spotLat, spotLon);
-        }
-      } catch (worldTidesError) {
-        console.error('[TIDE_DATA] Error fetching WorldTides data:', worldTidesError);
-      }
-      
-      // If WorldTides fails, try NOAA predictions
+      // Try NOAA predictions
       try {
         const tideResponse = await fetch(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?station=${stationId}&product=predictions&datum=MLLW&time_zone=lst_ldt&units=english&format=json`);
         const tideData = await tideResponse.json();
@@ -1014,7 +997,7 @@ const BuoyData = {
         if (tideData?.predictions?.[0]) {
           basicData.tide = parseFloat(tideData.predictions[0].v);
           console.log(`[TIDE_DATA] Retrieved tide data from NOAA predictions: ${basicData.tide}ft`);
-          return await this.enhanceTideData(basicData, spotLat, spotLon);
+          return basicData;
         }
       } catch (tideError) {
         console.error('[TIDE_DATA] Error fetching tide predictions:', tideError);
@@ -1028,109 +1011,6 @@ const BuoyData = {
       console.error('[TIDE_DATA] Error fetching station data:', error);
       return null;
     }
-  },
-
-  async enhanceTideData(stationData, spotLat, spotLon) {
-    if (!stationData) return null;
-    
-    try {
-      // Get historical tide data from WorldTides using spot coordinates
-      const worldTidesKey = worldTidesApiKey.value();
-      const worldTidesResponse = await fetch(`https://www.worldtides.info/api/v2?heights&lat=${spotLat}&lon=${spotLon}&key=${worldTidesKey}&step=3600&length=86400`);
-      const worldTidesData = await worldTidesResponse.json();
-      
-      if (worldTidesData?.heights) {
-        // Calculate tide trends
-        const tideTrend = this.calculateTideTrend(worldTidesData.heights);
-        
-        // Find next high and low tides
-        const nextHighTide = this.findNextHighTide(worldTidesData.heights);
-        const nextLowTide = this.findNextLowTide(worldTidesData.heights);
-        
-        // Calculate tide range
-        const tideRange = this.calculateTideRange(worldTidesData.heights);
-        
-        return {
-          ...stationData,
-          tideTrend,
-          nextHighTide,
-          nextLowTide,
-          tideRange
-        };
-      }
-      
-      return stationData;
-    } catch (error) {
-      console.error('[TIDE_DATA] Error enhancing tide data:', error);
-      return stationData;
-    }
-  },
-
-  calculateTideTrend(heights) {
-    if (!heights || heights.length < 2) return 'unknown';
-    
-    const recentHeights = heights.slice(-6); // Last 6 readings
-    const firstHeight = recentHeights[0].height;
-    const lastHeight = recentHeights[recentHeights.length - 1].height;
-    
-    const difference = lastHeight - firstHeight;
-    if (Math.abs(difference) < 0.1) return 'stable';
-    return difference > 0 ? 'rising' : 'falling';
-  },
-
-  findNextHighTide(heights) {
-    if (!heights || heights.length < 12) return null;
-    
-    const currentTime = new Date().getTime();
-    const futureHeights = heights.filter(h => new Date(h.dt * 1000) > currentTime);
-    
-    if (futureHeights.length === 0) return null;
-    
-    let maxHeight = futureHeights[0];
-    for (const height of futureHeights) {
-      if (height.height > maxHeight.height) {
-        maxHeight = height;
-      }
-    }
-    
-    return {
-      time: new Date(maxHeight.dt * 1000),
-      height: maxHeight.height
-    };
-  },
-
-  findNextLowTide(heights) {
-    if (!heights || heights.length < 12) return null;
-    
-    const currentTime = new Date().getTime();
-    const futureHeights = heights.filter(h => new Date(h.dt * 1000) > currentTime);
-    
-    if (futureHeights.length === 0) return null;
-    
-    let minHeight = futureHeights[0];
-    for (const height of futureHeights) {
-      if (height.height < minHeight.height) {
-        minHeight = height;
-      }
-    }
-    
-    return {
-      time: new Date(minHeight.dt * 1000),
-      height: minHeight.height
-    };
-  },
-
-  calculateTideRange(heights) {
-    if (!heights || heights.length < 12) return null;
-    
-    const maxHeight = Math.max(...heights.map(h => h.height));
-    const minHeight = Math.min(...heights.map(h => h.height));
-    
-    return {
-      max: maxHeight,
-      min: minHeight,
-      range: maxHeight - minHeight
-    };
   },
 
   parseStationData(dataText) {
@@ -1750,14 +1630,14 @@ exports.sendSurfReports = onSchedule({
   schedule: '0 5 * * *',  // 5 AM LA time
   timeZone: 'America/Los_Angeles',  // California timezone
   retryCount: 0,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey, worldTidesApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
   memory: '256MiB'
 }, async (event) => {
   try {
     // Get today's date in LA timezone
     const laDate = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
     const today = new Date(laDate);
-    const dateKey = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const dateKey = today.toISOString().split('T')[0];
 
     // Check for existing lock using a transaction
     const lockRef = admin.firestore().collection('locks').doc('regularReports');
@@ -1799,7 +1679,6 @@ exports.sendSurfReports = onSchedule({
     const sendGridApiKey = sendgridApiKey.value();
     const fromEmail = sendgridFromEmail.value();
     const templateId = sendgridTemplateId.value();
-    const premiumTemplateId = sendgridPremiumTemplateId.value();
     const openAiApiKey = openaiApiKey.value();
 
     sgMail.setApiKey(sendGridApiKey);
@@ -1819,12 +1698,6 @@ exports.sendSurfReports = onSchedule({
         // Skip if no surf locations
         if (!userData.surfLocations || userData.surfLocations.length === 0) {
           console.log(`[SKIP_USER] User ${user.email} has no surf locations set`);
-          continue;
-        }
-
-        // Skip premium users as they are handled by sendPremiumSurfReports
-        if (user.premium) {
-          console.log(`[SKIP_PREMIUM_USER] User ${user.email} is premium, skipping in sendSurfReports`);
           continue;
         }
 
@@ -2073,7 +1946,7 @@ app.post('/sync-email-verification', async (req, res) => {
 // Test function to send emails immediately
 exports.testSendEmails = onRequest({
   cors: true,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, sendgridPremiumTemplateId, openaiApiKey, worldTidesApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
   memory: '256MiB',
   timeoutSeconds: 300,
   minInstances: 1,
@@ -2119,7 +1992,7 @@ exports.testSendEmails = onRequest({
     const user = userDoc.data();
     const userId = userDoc.id;
 
-    console.log(`[TEST_SEND_EMAILS] Processing user ${email} (${userId}) with premium status: ${user.premium}`);
+    console.log(`[TEST_SEND_EMAILS] Processing user ${email} (${userId})`);
 
     // Get user's surf locations
     const userData = await getUserData(userId);
@@ -2135,270 +2008,87 @@ exports.testSendEmails = onRequest({
     const sendGridApiKey = sendgridApiKey.value();
     const fromEmail = sendgridFromEmail.value();
     const templateId = sendgridTemplateId.value();
-    const premiumTemplateId = sendgridPremiumTemplateId.value();
     const openAiApiKey = openaiApiKey.value();
 
     sgMail.setApiKey(sendGridApiKey);
 
-    if (user.premium) {
-      console.log(`[TEST_SEND_EMAILS] Sending premium email for ${email}`);
-      // Premium user flow - get up to 5 spots and find best match
-      const locations = surfLocations.slice(0, 5);
-      
-      // Process all locations in parallel
-      console.log(`[TEST_SEND_EMAILS] Processing ${locations.length} locations in parallel for ${email}`);
-      const startTime = Date.now();
-      
-      const spotReports = await Promise.all(
-        locations.map(async (location) => {
-          if (!location) return null;
-          console.log(`[TEST_SEND_EMAILS] Processing location: ${location}`);
-          const report = await generateSurfReport(
-            location, 
-            userData.surferType, 
-            userId, 
-            openAiApiKey, 
-            userData
-          );
-          console.log(`[TEST_SEND_EMAILS] Completed location: ${location}`);
-          return report;
-        })
-      );
-
-      const endTime = Date.now();
-      console.log(`[TEST_SEND_EMAILS] Parallel processing took ${endTime - startTime}ms`);
-
-      // Filter out any null results
-      const validReports = spotReports.filter(report => report !== null);
-      console.log(`[TEST_SEND_EMAILS] Generated ${validReports.length} valid reports`);
-
-      // Score each spot based on multiple factors
-      const scoredSpots = validReports.map(spot => {
-        // Get skill match percentage
-        const skillMatch = parseInt(spot.skill_match.replace('%', ''));
-        
-        // Get tide data
-        const tideData = spot.weatherData?.current?.buoyData;
-        const tideScore = tideData ? {
-          current: tideData.tide,
-          trend: tideData.tideTrend,
-          nextHigh: tideData.nextHighTide,
-          nextLow: tideData.nextLowTide,
-          range: tideData.tideRange
-        } : null;
-        
-        // Get wave data
-        const waveData = spot.weatherData?.current;
-        const waveScore = waveData ? {
-          height: waveData.waveHeight,
-          period: waveData.swellPeriod,
-          direction: waveData.swellDirection
-        } : null;
-        
-        // Get wind data
-        const windData = spot.weatherData?.current;
-        const windScore = windData ? {
-          speed: windData.windSpeed,
-          direction: windData.windDirection,
-          gusts: windData.windGusts
-        } : null;
-        
-        // Calculate overall score
-        let overallScore = skillMatch; // Base score on skill match
-        
-        // Add tide score if available
-        if (tideScore) {
-          if (tideScore.trend === 'rising') overallScore += 10;
-          if (tideScore.range && tideScore.range.range > 2 && tideScore.range.range < 6) overallScore += 5;
-        }
-        
-        // Add wave score if available
-        if (waveScore) {
-          if (waveScore.height > 2 && waveScore.height < 6) overallScore += 10;
-          if (waveScore.period > 8) overallScore += 5;
-        }
-        
-        // Add wind score if available
-        if (windScore) {
-          if (windScore.speed < 10) overallScore += 10;
-          if (windScore.direction > 180 && windScore.direction < 360) overallScore += 5;
-        }
-        
-        return {
-          ...spot,
-          score: overallScore,
-          tideData,
-          waveData,
-          windData
-        };
-      });
-
-      // Sort spots by score and take top 3
-      const bestSpots = scoredSpots
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3);
-
-      console.log(`[TEST_SEND_EMAILS] Selected top 3 spots:`, 
-        bestSpots.map(spot => `${spot.spot_name} (Score: ${spot.score})`));
-
-      // Determine condition emoji based on skill match percentage of best spot
-      const skillMatch = parseInt(bestSpots[0].skill_match.replace('%', ''));
-      const conditionEmoji = skillMatch >= 75 ? '🟢' : 
-                           skillMatch >= 50 ? '🟡' : '🔴';
-
-      // Format the featured spot (best overall)
-      const featuredSpot = {
-        name: bestSpots[0].spot_name,
-        highlight: bestSpots[0].match_summary,
-        reason: bestSpots[0].match_conditions,
-        wave: bestSpots[0].wave_height,
-        conditions: bestSpots[0].conditions,
-        skill: bestSpots[0].skill_match,
-        board: bestSpots[0].best_board,
-        air: bestSpots[0].air_temp,
-        cloud: bestSpots[0].clouds,
-        rain: bestSpots[0].rain_chance,
-        wind: bestSpots[0].wind_description,
-        water: bestSpots[0].water_temp,
-        wetsuit: bestSpots[0].gear,
-        best_time: bestSpots[0].prime_time,
-        alt_time: bestSpots[0].backup_time,
-        tip1: bestSpots[0].tip1,
-        tip2: bestSpots[0].tip2,
-        tip3: bestSpots[0].tip3
-      };
-
-      // Format remaining spots (2nd and 3rd best)
-      const otherSpots = bestSpots.slice(1).map(spot => {
-        const tideData = spot.weatherData?.current?.buoyData?.tide;
-        console.log(`[TIDE_DATA] Spot ${spot.spot_name}: ${tideData ? `Tide: ${tideData}ft` : 'No tide data available'}`);
-        return {
-          name: spot.spot_name,
-          highlight: spot.match_summary,
-          wave: spot.wave_height,
-          conditions: spot.conditions,
-          skill: spot.skill_match,
-          board: spot.best_board,
-          best_time: spot.prime_time,
-          alt_time: spot.backup_time,
-          tide: tideData ? `${tideData}ft` : 'No tide data available'
-        };
-      });
-
-      // Prepare template data
-      const templateData = {
-        user_name: user.displayName || 'Surfer',
-        featured_spot: featuredSpot,
-        spots: otherSpots,
-        total_spots: bestSpots.length,
-        diary_url: "https://kook-cast.com/surf-diary/new",
-        subject: `${conditionEmoji} Go surf at ${bestSpots[0].prime_time} at ${bestSpots[0].spot_name}`
-      };
-
-      // Send ONE premium email
-      console.log(`[SENDING_EMAIL] Sending single email to ${user.email} with ${bestSpots.length} locations`);
-      const emailResult = await sgMail.send({
-        to: user.email,
-        from: {
-          email: fromEmail,
-          name: "KookCast"
-        },
-        subject: `${conditionEmoji} Go surf at ${bestSpots[0].prime_time} at ${bestSpots[0].spot_name}`,
-        templateId: premiumTemplateId,
-        dynamicTemplateData: templateData
-      });
-
-      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent premium email to ${email} with ${bestSpots.length} spots`);
-      
-      return res.json({
-        status: 'success',
-        message: 'Test email sent successfully',
-        details: {
-          locations_processed: locations.length,
-          valid_reports: validReports.length,
-          selected_spots: bestSpots.length,
-          processing_time_ms: endTime - startTime
-        }
-      });
-    } else {
-      // Regular user flow - only send email for their selected spot
-      console.log(`[TEST_SEND_EMAILS] Sending regular email for ${email}`);
-      const location = surfLocations[0];
-      if (!location) {
-        return res.status(400).json({
-          status: 'error',
-          message: 'No surf location found'
-        });
-      }
-
-      const surfReport = await generateSurfReport(
-        location, 
-        userData.surferType, 
-        userId, 
-        openAiApiKey, 
-        userData
-      );
-
-      const formattedLocation = formatLocation(surfReport.location);
-      const subject = `Go surf at ${surfReport.prime_time} at ${formattedLocation}`;
-
-      // Determine condition emoji based on skill match percentage
-      const skillMatch = parseInt(surfReport.skill_match.replace('%', ''));
-      const conditionEmoji = skillMatch >= 75 ? '🟢' : 
-                           skillMatch >= 50 ? '🟡' : '🔴';
-
-      // Format template data
-      const templateData = {
-        spot_name: formattedLocation,
-        match_summary: surfReport.match_summary,
-        match_conditions: surfReport.match_conditions,
-        wave_height: surfReport.wave_height,
-        conditions: surfReport.conditions,
-        skill_match: surfReport.skill_match,
-        best_board: surfReport.best_board,
-        air_temp: surfReport.air_temp,
-        clouds: surfReport.clouds,
-        rain_chance: surfReport.rain_chance,
-        wind_description: surfReport.wind_description,
-        water_temp: surfReport.water_temp,
-        gear: surfReport.gear,
-        prime_time: surfReport.prime_time,
-        prime_notes: surfReport.prime_notes,
-        backup_time: surfReport.backup_time,
-        backup_notes: surfReport.backup_notes,
-        tip1: surfReport.tip1,
-        tip2: surfReport.tip2,
-        tip3: surfReport.tip3,
-        daily_challenge: surfReport.daily_challenge,
-        skill_focus: surfReport.skill_focus,
-        diary_url: "https://kook-cast.com/surf-diary/new",
-        subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
-      };
-
-      // Send ONE regular email
-      console.log(`[TEST_SEND_EMAILS] Sending single email to ${email} for spot ${formattedLocation}`);
-      await sgMail.send({
-        to: email,
-        from: {
-          email: fromEmail,
-          name: "KookCast"
-        },
-        subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
-        templateId: templateId,
-        dynamicTemplateData: templateData
-      });
-
-      console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent regular email to ${email} for spot ${formattedLocation}`);
-      
-      return res.json({
-        status: 'success',
-        message: 'Test email sent successfully',
-        details: {
-          location: formattedLocation,
-          skill_match: surfReport.skill_match
-        }
+    // Regular user flow - only send email for their selected spot
+    console.log(`[TEST_SEND_EMAILS] Sending regular email for ${email}`);
+    const location = surfLocations[0];
+    if (!location) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'No surf location found'
       });
     }
+
+    const surfReport = await generateSurfReport(
+      location, 
+      userData.surferType, 
+      userId, 
+      openAiApiKey, 
+      userData
+    );
+
+    const formattedLocation = formatLocation(surfReport.location);
+    const subject = `Go surf at ${surfReport.prime_time} at ${formattedLocation}`;
+
+    // Determine condition emoji based on skill match percentage
+    const skillMatch = parseInt(surfReport.skill_match.replace('%', ''));
+    const conditionEmoji = skillMatch >= 75 ? '🟢' : 
+                         skillMatch >= 50 ? '🟡' : '🔴';
+
+    // Format template data
+    const templateData = {
+      spot_name: formattedLocation,
+      match_summary: surfReport.match_summary,
+      match_conditions: surfReport.match_conditions,
+      wave_height: surfReport.wave_height,
+      conditions: surfReport.conditions,
+      skill_match: surfReport.skill_match,
+      best_board: surfReport.best_board,
+      air_temp: surfReport.air_temp,
+      clouds: surfReport.clouds,
+      rain_chance: surfReport.rain_chance,
+      wind_description: surfReport.wind_description,
+      water_temp: surfReport.water_temp,
+      gear: surfReport.gear,
+      prime_time: surfReport.prime_time,
+      prime_notes: surfReport.prime_notes,
+      backup_time: surfReport.backup_time,
+      backup_notes: surfReport.backup_notes,
+      tip1: surfReport.tip1,
+      tip2: surfReport.tip2,
+      tip3: surfReport.tip3,
+      daily_challenge: surfReport.daily_challenge,
+      skill_focus: surfReport.skill_focus,
+      diary_url: "https://kook-cast.com/surf-diary/new",
+      subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`
+    };
+
+    // Send ONE regular email
+    console.log(`[TEST_SEND_EMAILS] Sending single email to ${email} for spot ${formattedLocation}`);
+    await sgMail.send({
+      to: email,
+      from: {
+        email: fromEmail,
+        name: "KookCast"
+      },
+      subject: `${conditionEmoji} Go surf at ${surfReport.prime_time} at ${formattedLocation}`,
+      templateId: templateId,
+      dynamicTemplateData: templateData
+    });
+
+    console.log(`[TEST_SEND_EMAILS_SUCCESS] Sent regular email to ${email} for spot ${formattedLocation}`);
+    
+    return res.json({
+      status: 'success',
+      message: 'Test email sent successfully',
+      details: {
+        location: formattedLocation,
+        skill_match: surfReport.skill_match
+      }
+    });
   } catch (error) {
     console.error('[TEST_SEND_EMAILS] Error:', error);
     res.status(500).json({
@@ -2408,442 +2098,6 @@ exports.testSendEmails = onRequest({
     });
   }
 });
-
-// Premium email function
-exports.sendPremiumSurfReports = onSchedule({
-  schedule: '0 5 * * *',  // 5 AM LA time
-  timeZone: 'America/Los_Angeles',  // California timezone
-  retryCount: 0,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridPremiumTemplateId, openaiApiKey, worldTidesApiKey],
-  memory: '256MiB'
-}, async (event) => {
-  try {
-    // Get today's date in LA timezone
-    const laDate = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-    const today = new Date(laDate);
-    const dateKey = today.toISOString().split('T')[0];
-
-    // Check for existing lock using a transaction
-    const lockRef = admin.firestore().collection('locks').doc('premiumReports');
-    
-    const result = await admin.firestore().runTransaction(async (transaction) => {
-      const lockDoc = await transaction.get(lockRef);
-      const lockData = lockDoc.data();
-      
-      // If lock exists and is from today, skip
-      if (lockData?.date === dateKey) {
-        console.log('[PREMIUM_REPORTS] Skipping - already processed today');
-        return { shouldRun: false };
-      }
-      
-      // Set new lock with today's date
-      transaction.set(lockRef, {
-        date: dateKey,
-        state: 'running',
-        lastRun: admin.firestore.FieldValue.serverTimestamp(),
-        instanceId: Math.random().toString(36).substring(7)
-      });
-      
-      return { shouldRun: true };
-    });
-
-    if (!result.shouldRun) {
-      return;
-    }
-
-    console.log('[PREMIUM_REPORTS] Starting premium surf report distribution');
-    
-    // Get all premium users with emailVerified = true
-    const usersSnapshot = await admin.firestore()
-      .collection('users')
-      .where('emailVerified', '==', true)
-      .where('premium', '==', true)
-      .get();
-    
-    console.log(`[PREMIUM_REPORTS] Found ${usersSnapshot.size} premium users`);
-
-    const sendGridApiKey = sendgridApiKey.value();
-    const fromEmail = sendgridFromEmail.value();
-    const premiumTemplateId = sendgridPremiumTemplateId.value();
-    const openAiApiKey = openaiApiKey.value();
-
-    sgMail.setApiKey(sendGridApiKey);
-
-    // Process each premium user
-    let successCount = 0;
-    let errorCount = 0;
-    const processedUsers = new Set();
-    
-    for (const userDoc of usersSnapshot.docs) {
-      const user = userDoc.data() || {};
-      const userId = userDoc.id;
-      
-      // Skip if already processed
-      if (processedUsers.has(userId)) {
-        console.log(`[PREMIUM_REPORTS] Skipping already processed user ${userId}`);
-        continue;
-      }
-      processedUsers.add(userId);
-      
-      try {
-        // Get user data with defaults
-        const userData = await getUserData(userId);
-        
-        // Skip if no surf locations
-        if (!userData.surfLocations || userData.surfLocations.length === 0) {
-          console.log(`[SKIP_PREMIUM_USER] User ${user.email} has no surf locations set`);
-          continue;
-        }
-
-        // Get up to 5 surf locations
-        const locations = userData.surfLocations.slice(0, 5);
-        
-        // Process all locations in parallel
-        console.log(`[PROCESSING_PREMIUM_USER] Generating reports for ${user.email} - ${locations.length} locations`);
-        const startTime = Date.now();
-        
-        const spotReports = await Promise.all(
-          locations.map(async (location) => {
-            if (!location) return null;
-            console.log(`[PROCESSING_LOCATION] ${user.email} - ${location}`);
-            return generateSurfReport(
-              location, 
-              userData.surferType, 
-              userId, 
-              openAiApiKey, 
-              userData
-            );
-          })
-        );
-
-        const endTime = Date.now();
-        console.log(`[PROCESSING_TIME] Took ${endTime - startTime}ms to process ${locations.length} locations`);
-
-        // Filter out any null results
-        const validReports = spotReports.filter(report => report !== null);
-        console.log(`[VALID_REPORTS] Generated ${validReports.length} valid reports`);
-
-        // Score each spot based on multiple factors
-        const scoredSpots = validReports.map(spot => {
-          // Get skill match percentage
-          const skillMatch = parseInt(spot.skill_match.replace('%', ''));
-          
-          // Get tide data
-          const tideData = spot.weatherData?.current?.buoyData;
-          const tideScore = tideData ? {
-            current: tideData.tide,
-            trend: tideData.tideTrend,
-            nextHigh: tideData.nextHighTide,
-            nextLow: tideData.nextLowTide,
-            range: tideData.tideRange
-          } : null;
-          
-          // Get wave data
-          const waveData = spot.weatherData?.current;
-          const waveScore = waveData ? {
-            height: waveData.waveHeight,
-            period: waveData.swellPeriod,
-            direction: waveData.swellDirection
-          } : null;
-          
-          // Get wind data
-          const windData = spot.weatherData?.current;
-          const windScore = windData ? {
-            speed: windData.windSpeed,
-            direction: windData.windDirection,
-            gusts: windData.windGusts
-          } : null;
-          
-          // Calculate overall score
-          let overallScore = skillMatch; // Base score on skill match
-          
-          // Add tide score if available
-          if (tideScore) {
-            if (tideScore.trend === 'rising') overallScore += 10;
-            if (tideScore.range && tideScore.range.range > 2 && tideScore.range.range < 6) overallScore += 5;
-          }
-          
-          // Add wave score if available
-          if (waveScore) {
-            if (waveScore.height > 2 && waveScore.height < 6) overallScore += 10;
-            if (waveScore.period > 8) overallScore += 5;
-          }
-          
-          // Add wind score if available
-          if (windScore) {
-            if (windScore.speed < 10) overallScore += 10;
-            if (windScore.direction > 180 && windScore.direction < 360) overallScore += 5;
-          }
-          
-          return {
-            ...spot,
-            score: overallScore,
-            tideData,
-            waveData,
-            windData
-          };
-        });
-
-        // Sort spots by score and take top 3
-        const bestSpots = scoredSpots
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 3);
-
-        console.log(`[BEST_SPOTS] Selected top 3 spots for ${user.email}:`, 
-          bestSpots.map(spot => `${spot.spot_name} (Score: ${spot.score})`));
-
-        // Format the featured spot (best overall)
-        const featuredSpot = {
-          name: bestSpots[0].spot_name,
-          highlight: bestSpots[0].match_summary,
-          reason: bestSpots[0].match_conditions,
-          wave: bestSpots[0].wave_height,
-          conditions: bestSpots[0].conditions,
-          skill: bestSpots[0].skill_match,
-          board: bestSpots[0].best_board,
-          air: bestSpots[0].air_temp,
-          cloud: bestSpots[0].clouds,
-          rain: bestSpots[0].rain_chance,
-          wind: bestSpots[0].wind_description,
-          water: bestSpots[0].water_temp,
-          wetsuit: bestSpots[0].gear,
-          best_time: bestSpots[0].prime_time,
-          alt_time: bestSpots[0].backup_time,
-          tide: bestSpots[0].tideData ? {
-            current: `${bestSpots[0].tideData.tide}ft`,
-            trend: bestSpots[0].tideData.tideTrend,
-            nextHigh: bestSpots[0].tideData.nextHighTide ? {
-              time: bestSpots[0].tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-              height: `${bestSpots[0].tideData.nextHighTide.height}ft`
-            } : null,
-            nextLow: bestSpots[0].tideData.nextLowTide ? {
-              time: bestSpots[0].tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-              height: `${bestSpots[0].tideData.nextLowTide.height}ft`
-            } : null,
-            range: bestSpots[0].tideData.tideRange ? {
-              min: `${bestSpots[0].tideData.tideRange.min}ft`,
-              max: `${bestSpots[0].tideData.tideRange.max}ft`,
-              range: `${bestSpots[0].tideData.tideRange.range}ft`
-            } : null
-          } : 'No tide data available',
-          swell: bestSpots[0].swell_data
-        };
-
-        // Format additional spots (2nd and 3rd best)
-        const additionalSpots = bestSpots.slice(1).map(spot => {
-          const tideData = spot.tideData;
-          console.log(`[TIDE_DATA] Spot ${spot.spot_name}: ${tideData ? `Tide: ${tideData.tide}ft (${tideData.tideTrend})` : 'No tide data available'}`);
-          return {
-            name: spot.spot_name,
-            highlight: spot.match_summary,
-            reason: spot.match_conditions,
-            wave: spot.wave_height,
-            conditions: spot.conditions,
-            skill: spot.skill_match,
-            board: spot.best_board,
-            air: spot.air_temp,
-            cloud: spot.clouds,
-            rain: spot.rain_chance,
-            wind: spot.wind_description,
-            water: spot.water_temp,
-            wetsuit: spot.gear,
-            best_time: spot.prime_time,
-            alt_time: spot.backup_time,
-            tide: tideData ? {
-              current: `${tideData.tide}ft`,
-              trend: tideData.tideTrend,
-              nextHigh: tideData.nextHighTide ? {
-                time: tideData.nextHighTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-                height: `${tideData.nextHighTide.height}ft`
-              } : null,
-              nextLow: tideData.nextLowTide ? {
-                time: tideData.nextLowTide.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-                height: `${tideData.nextLowTide.height}ft`
-              } : null,
-              range: tideData.tideRange ? {
-                min: `${tideData.tideRange.min}ft`,
-                max: `${tideData.tideRange.max}ft`,
-                range: `${tideData.tideRange.range}ft`
-              } : null
-            } : 'No tide data available',
-            swell: spot.swell_data
-          };
-        });
-
-        // Prepare email template data
-        const templateData = {
-          featured_spot: {
-            name: featuredSpot.spot_name,
-            highlight: featuredSpot.match_summary,
-            reason: featuredSpot.match_conditions,
-            wave: featuredSpot.wave_height,
-            conditions: featuredSpot.conditions,
-            skill: featuredSpot.skill_match,
-            board: featuredSpot.best_board,
-            air: featuredSpot.air_temp,
-            cloud: featuredSpot.clouds,
-            rain: featuredSpot.rain_chance,
-            wind: featuredSpot.wind_description,
-            water: featuredSpot.water_temp,
-            wetsuit: featuredSpot.gear,
-            best_time: featuredSpot.prime_time,
-            alt_time: featuredSpot.backup_time,
-            tip1: featuredSpot.tip1,
-            tip2: featuredSpot.tip2,
-            tip3: featuredSpot.tip3,
-            daily_challenge: featuredSpot.daily_challenge,
-            skill_focus: featuredSpot.skill_focus
-          },
-          additional_spots: additionalSpots,
-          user_name: userData.name || 'Surfer',
-          date: today.toLocaleDateString('en-US', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric',
-            timeZone: 'America/Los_Angeles'
-          }),
-          diary_url: "https://kook-cast.com/surf-diary/new",
-          subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`
-        };
-
-        // Send ONE premium email
-        console.log(`[SENDING_EMAIL] Sending single email to ${user.email} with ${validReports.length} locations`);
-        const emailResult = await sgMail.send({
-          to: user.email,
-          from: {
-            email: fromEmail,
-            name: "KookCast"
-          },
-          subject: `${conditionEmoji} Go surf at ${featuredSpot.prime_time} at ${featuredSpot.spot_name}`,
-          templateId: premiumTemplateId,
-          dynamicTemplateData: templateData
-        });
-
-        // Verify email was sent successfully
-        if (!emailResult || !emailResult[0]?.statusCode === 202) {
-          throw new Error('Failed to send email');
-        }
-
-        console.log(`[EMAIL_SENT] Successfully sent email to ${user.email}`);
-        successCount++;
-      } catch (error) {
-        console.error(`[USER_ERROR] Failed to process user ${user.email}:`, error);
-        errorCount++;
-        
-        // Update user's status in Firestore
-        try {
-          await admin.firestore()
-            .collection('users')
-            .doc(userId)
-            .update({
-              lastEmailError: error.message,
-              lastEmailAttempt: admin.firestore.FieldValue.serverTimestamp()
-            });
-        } catch (updateError) {
-          console.error(`[UPDATE_ERROR] Failed to update user status for ${user.email}:`, updateError);
-        }
-      }
-    }
-
-    // Update lock with completion status
-    await lockRef.update({
-      state: 'completed',
-      successCount,
-      errorCount,
-      completedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    console.log('[PREMIUM_REPORTS_COMPLETE]', {
-      total_users: usersSnapshot.size,
-      success_count: successCount,
-      error_count: errorCount,
-      timestamp: new Date().toISOString()
-    });
-
-    return { success: true, message: 'Premium surf reports sent successfully' };
-  } catch (error) {
-    console.error('[PREMIUM_REPORTS_ERROR]', error);
-    // Update lock with error status
-    try {
-      await admin.firestore().collection('locks').doc('premiumReports').update({
-        state: 'failed',
-        error: error.message,
-        errorAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (lockError) {
-      console.error('[PREMIUM_REPORTS] Error updating lock:', lockError);
-    }
-    return { success: false, error: error.message };
-  }
-});
-
-// Migration function to standardize surf locations field name
-exports.migrateSurfLocations = functions.https.onRequest(async (req, res) => {
-  try {
-    const db = admin.firestore();
-    const usersSnapshot = await db.collection('users').get();
-    
-    let migratedCount = 0;
-    let errorCount = 0;
-    
-    for (const userDoc of usersSnapshot.docs) {
-      try {
-        const userData = userDoc.data();
-        
-        // Skip if user already has surfLocations
-        if (userData.surfLocations) {
-          continue;
-        }
-        
-        // If user has selectedSpots, migrate to surfLocations
-        if (userData.selectedSpots) {
-          await userDoc.ref.update({
-            surfLocations: userData.selectedSpots,
-            updatedAt: new Date().toISOString()
-          });
-          migratedCount++;
-        }
-      } catch (error) {
-        console.error(`Error migrating user ${userDoc.id}:`, error);
-        errorCount++;
-      }
-    }
-    
-    res.json({
-      success: true,
-      migratedCount,
-      errorCount,
-      message: `Migration complete. Migrated ${migratedCount} users, ${errorCount} errors.`
-    });
-  } catch (error) {
-    console.error('Migration error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Sync premium status when subscription changes
-exports.syncPremiumStatus = functions.firestore
-  .onDocumentWritten('customers/{userId}/subscriptions/{subscriptionId}', async (event) => {
-    const { userId } = event.params;
-    const subscription = event.data?.after?.data();
-
-    if (!subscription) return;
-
-    const isActive = subscription.status === 'active' && subscription.cancel_at_period_end === false;
-
-    const userRef = admin.firestore().collection('users').doc(userId);
-
-    await userRef.update({
-      premium: isActive,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    console.log(`User ${userId} premium status set to`, isActive);
-  });
 
 // Start the server if we're not in Firebase Functions
 if (process.env.NODE_ENV === 'development') {
@@ -2881,7 +2135,7 @@ exports.api = onRequest({
   memory: "256MiB",
   timeoutSeconds: 60,
   minInstances: 0,
-  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey, worldTidesApiKey],
+  secrets: [sendgridApiKey, sendgridFromEmail, sendgridTemplateId, openaiApiKey],
   invoker: "public",
   concurrency: 1
 }, app);

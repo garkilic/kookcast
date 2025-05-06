@@ -5,7 +5,6 @@ import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { useRouter } from 'next/navigation';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // Add development mode flag
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
@@ -18,12 +17,14 @@ interface SurferPreferences {
 }
 
 interface MultiStepSignUpFreeProps {
-  onUpgradeToPremium: () => void;
   initialSpot?: string | null;
   initialEmail?: string;
 }
 
-export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, initialEmail }: MultiStepSignUpFreeProps) {
+export default function MultiStepSignUpFree({ 
+  initialSpot, 
+  initialEmail 
+}: MultiStepSignUpFreeProps) {
   const [step, setStep] = useState<Step>('spot');
   const [selectedSpot, setSelectedSpot] = useState<string | null>(initialSpot || null);
   const [surferPreferences, setSurferPreferences] = useState<SurferPreferences>({
@@ -101,11 +102,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Send verification email
-      await sendEmailVerification(user);
-      setVerificationSent(true);
 
-      // Create user document in Firestore
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         createdAt: new Date().toISOString(),
@@ -118,18 +115,35 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
         premium: false,
       });
 
-      // Send signup notification
+      // Send email verification with default Firebase template and flow
       try {
-        const functions = getFunctions();
-        const sendSignupNotification = httpsCallable(functions, 'sendSignupNotification');
-        await sendSignupNotification({ email: user.email });
-      } catch (notificationError) {
-        console.error('Error sending signup notification:', notificationError);
+        await sendEmailVerification(user);
+        setVerificationSent(true);
+      } catch (verificationError: any) {
+        console.error('Verification email error:', verificationError);
+        // Log specific error details
+        if (verificationError.code) {
+          console.error('Error code:', verificationError.code);
+        }
+        if (verificationError.message) {
+          console.error('Error message:', verificationError.message);
+        }
+        // Don't throw error here, just log it and continue
+        // The user can still request a new verification email later
       }
 
       setStep('verify');
     } catch (error: any) {
-      setError(error.message);
+      console.error('Signup error:', error);
+      if (error.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please sign in instead.');
+      } else if (error.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address.');
+      } else if (error.code === 'auth/weak-password') {
+        setError('Password should be at least 6 characters long.');
+      } else {
+        setError(error.message || 'An error occurred during signup. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -190,18 +204,18 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {displayedSpots.map((spot) => {
               const isSelected = selectedSpot === spot.id;
-              const isLocked = selectedSpot !== null && !isSelected;
+              const isGreyedOut = selectedSpot !== null && !isSelected;
               
               return (
                 <button
                   key={spot.id}
                   onClick={() => handleSpotSelect(spot.id)}
-                  disabled={isLocked}
+                  disabled={isGreyedOut}
                   className={`p-3 sm:p-4 border rounded-lg transition-all duration-200 relative ${
                     isSelected
                       ? 'border-blue-500 bg-blue-50'
-                      : isLocked
-                        ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
+                      : isGreyedOut
+                        ? 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
                         : spot.isMostPopular 
                           ? 'border-2 border-purple-500 bg-purple-50 hover:border-purple-600 hover:bg-purple-100' 
                           : 'hover:border-blue-500 hover:bg-blue-50'
@@ -210,14 +224,6 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
                   {spot.isMostPopular && (
                     <div className="absolute -top-2 left-2 bg-purple-500 text-white text-xs font-medium px-2 py-1 rounded-full">
                       Popular
-                    </div>
-                  )}
-                  {isLocked && (
-                    <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
-                      <div className="text-center">
-                        <div className="text-gray-500 mb-2">🔒</div>
-                        <div className="text-sm text-gray-600">Maximum 5 spots selected</div>
-                      </div>
                     </div>
                   )}
                   <div className="flex flex-col gap-1 sm:gap-2">
@@ -250,13 +256,13 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div>
                       <h4 className="font-semibold text-lg">Want More Spots?</h4>
-                      <p className="text-sm text-white/90">Upgrade to Kook+ to track multiple surf spots</p>
+                      <p className="text-sm text-white/90">Coming soon: Track multiple surf spots</p>
                     </div>
                     <button
-                      onClick={onUpgradeToPremium}
-                      className="w-full sm:w-auto px-6 py-2 bg-white text-purple-600 rounded-lg font-medium hover:bg-gray-100 transition-colors"
+                      disabled
+                      className="w-full sm:w-auto px-6 py-2 bg-white/20 text-white rounded-lg font-medium cursor-not-allowed"
                     >
-                      Upgrade to Kook+
+                      Coming Soon
                     </button>
                   </div>
                 </div>
