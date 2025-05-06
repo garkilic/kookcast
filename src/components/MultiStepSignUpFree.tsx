@@ -5,7 +5,6 @@ import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getSurfSpots, SurfSpot } from '@/lib/surfSpots';
 import { useRouter } from 'next/navigation';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // Add development mode flag
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
@@ -99,9 +98,12 @@ export default function MultiStepSignUpFree({
         return;
       }
 
+      console.log('[SignUp] Starting signup process for email:', email);
+
       // Create user with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      console.log('[SignUp] User created successfully:', user.uid);
 
       // Create user document in Firestore first
       await setDoc(doc(db, 'users', user.uid), {
@@ -115,45 +117,42 @@ export default function MultiStepSignUpFree({
         emailVerified: false,
         premium: false,
       });
+      console.log('[SignUp] User document created in Firestore');
 
-      // Send email verification with retry logic
-      let verificationSent = false;
-      let retryCount = 0;
-      const maxRetries = 3;
-
-      while (!verificationSent && retryCount < maxRetries) {
-        try {
-          await sendEmailVerification(user, {
-            url: `${window.location.origin}/dashboard-v2`,
-            handleCodeInApp: true
-          });
-          verificationSent = true;
-          setVerificationSent(true);
-        } catch (verificationError: any) {
-          console.error(`Verification attempt ${retryCount + 1} failed:`, verificationError);
-          retryCount++;
-          if (retryCount === maxRetries) {
-            throw new Error('Failed to send verification email. Please try again later.');
-          }
-          // Wait for 1 second before retrying
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-
-      // Send signup notification
+      // Send email verification with improved configuration
       try {
-        const functions = getFunctions();
-        const sendSignupNotification = httpsCallable(functions, 'sendSignupNotification');
-        await sendSignupNotification({ email: user.email });
-      } catch (notificationError) {
-        console.error('Error sending signup notification:', notificationError);
-        // Don't throw error here as it's not critical
+        console.log('[SignUp] Attempting to send verification email...');
+        const verificationUrl = `${window.location.origin}/auth/verify-email`;
+        console.log('[SignUp] Verification URL:', verificationUrl);
+        
+        await sendEmailVerification(user, {
+          url: verificationUrl,
+          handleCodeInApp: true
+        });
+        console.log('[SignUp] Verification email sent successfully');
+        setVerificationSent(true);
+      } catch (verificationError: any) {
+        console.error('[SignUp] Verification email error:', verificationError);
+        console.error('[SignUp] Error code:', verificationError.code);
+        console.error('[SignUp] Error message:', verificationError.message);
+        // Don't throw error here, just log it and continue
+        // The user can still request a new verification email later
       }
 
       setStep('verify');
     } catch (error: any) {
-      console.error('Signup error:', error);
-      setError(error.message || 'An error occurred during signup. Please try again.');
+      console.error('[SignUp] Signup error:', error);
+      console.error('[SignUp] Error code:', error.code);
+      console.error('[SignUp] Error message:', error.message);
+      if (error.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please sign in instead.');
+      } else if (error.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address.');
+      } else if (error.code === 'auth/weak-password') {
+        setError('Password should be at least 6 characters long.');
+      } else {
+        setError(error.message || 'An error occurred during signup. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
