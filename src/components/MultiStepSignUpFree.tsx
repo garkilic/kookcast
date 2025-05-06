@@ -115,17 +115,9 @@ export default function MultiStepSignUpFree({
         premium: false,
       });
 
-      // Send email verification with improved configuration
+      // Send email verification with default Firebase template and flow
       try {
-        const verificationUrl = process.env.NODE_ENV === 'production' 
-          ? 'https://kook-cast.com/auth/verify-email'
-          : `${window.location.origin}/auth/verify-email`;
-        console.log('Sending verification email with URL:', verificationUrl);
-        
-        await sendEmailVerification(user, {
-          url: verificationUrl,
-          handleCodeInApp: true
-        });
+        await sendEmailVerification(user);
         setVerificationSent(true);
       } catch (verificationError: any) {
         console.error('Verification email error:', verificationError);
