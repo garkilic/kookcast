@@ -299,37 +299,37 @@ export default function DashboardV2() {
             {/* Surf Spots Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {surfSpots.map((spot: SurfSpot) => (
-                <div key={spot.id} className="bg-white rounded-lg shadow p-4 sm:p-6">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="text-lg sm:text-xl font-semibold">{spot.name}</h3>
-                      <p className="text-sm sm:text-base text-gray-600">{spot.region}</p>
+                  <div key={spot.id} className="bg-white rounded-lg shadow p-4 sm:p-6">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-lg sm:text-xl font-semibold">{spot.name}</h3>
+                        <p className="text-sm sm:text-base text-gray-600">{spot.region}</p>
+                      </div>
+                      {spot.isMostPopular && (
+                        <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                          Popular
+                        </span>
+                      )}
                     </div>
-                    {spot.isMostPopular && (
-                      <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                        Popular
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Wave Size</span>
-                      <span className="font-medium">3-4ft</span>
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Wave Size</span>
+                        <span className="font-medium">3-4ft</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Wind</span>
+                        <span className="font-medium">Light Offshore</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Tide</span>
+                        <span className="font-medium">Rising</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Wind</span>
-                      <span className="font-medium">Light Offshore</span>
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <p className="text-sm text-gray-600">Next update: 5:00 AM</p>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Tide</span>
-                      <span className="font-medium">Rising</span>
-                    </div>
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <p className="text-sm text-gray-600">Next update: 5:00 AM</p>
-                  </div>
-                </div>
-              ))}
+                  ))}
             </div>
 
             {/* Quick Actions */}
@@ -508,27 +508,27 @@ export default function DashboardV2() {
                     spot.region.toLowerCase().includes(searchQuery.toLowerCase())
                   )
                   .map((spot) => (
-                    <div
-                      key={spot.id}
-                      onClick={() => handleSpotSelect(spot.id)}
+                      <div
+                        key={spot.id}
+                        onClick={() => handleSpotSelect(spot.id)}
                       className={`p-4 rounded-lg border cursor-pointer transition-all ${
                         selectedSpots[0] === spot.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-medium">{spot.name}</h4>
-                          <p className="text-sm text-gray-600">{spot.region}</p>
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-blue-300'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-medium">{spot.name}</h4>
+                            <p className="text-sm text-gray-600">{spot.region}</p>
+                          </div>
+                          {spot.isMostPopular && (
+                            <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                              Popular
+                            </span>
+                          )}
                         </div>
-                        {spot.isMostPopular && (
-                          <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                            Popular
-                          </span>
-                        )}
                       </div>
-                    </div>
                   ))}
               </div>
             </div>
