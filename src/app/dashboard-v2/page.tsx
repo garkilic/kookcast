@@ -119,10 +119,22 @@ export default function DashboardV2() {
     setError('');
     setSuccess('');
     try {
-      await sendEmailVerification(auth.currentUser);
+      const verificationUrl = process.env.NODE_ENV === 'production' 
+        ? 'https://kook-cast.com/auth/verify-email'
+        : `${window.location.origin}/auth/verify-email`;
+      console.log('Resending verification email with URL:', verificationUrl);
+      
+      await sendEmailVerification(auth.currentUser, {
+        url: verificationUrl,
+        handleCodeInApp: true
+      });
       setSuccess('Verification email sent! Please check your inbox.');
     } catch (error: any) {
-      setError(error.message);
+      console.error('Error resending verification email:', error);
+      if (error.code) {
+        console.error('Error code:', error.code);
+      }
+      setError(error.message || 'Failed to send verification email. Please try again.');
     } finally {
       setIsResending(false);
     }

@@ -117,13 +117,25 @@ export default function MultiStepSignUpFree({
 
       // Send email verification with improved configuration
       try {
+        const verificationUrl = process.env.NODE_ENV === 'production' 
+          ? 'https://kook-cast.com/auth/verify-email'
+          : `${window.location.origin}/auth/verify-email`;
+        console.log('Sending verification email with URL:', verificationUrl);
+        
         await sendEmailVerification(user, {
-          url: `${window.location.origin}/auth/verify-email`,
+          url: verificationUrl,
           handleCodeInApp: true
         });
         setVerificationSent(true);
       } catch (verificationError: any) {
         console.error('Verification email error:', verificationError);
+        // Log specific error details
+        if (verificationError.code) {
+          console.error('Error code:', verificationError.code);
+        }
+        if (verificationError.message) {
+          console.error('Error message:', verificationError.message);
+        }
         // Don't throw error here, just log it and continue
         // The user can still request a new verification email later
       }
