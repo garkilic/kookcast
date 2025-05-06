@@ -98,12 +98,9 @@ export default function MultiStepSignUpFree({
         return;
       }
 
-      console.log('[SignUp] Starting signup process for email:', email);
-
       // Create user with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      console.log('[SignUp] User created successfully:', user.uid);
 
       // Create user document in Firestore first
       await setDoc(doc(db, 'users', user.uid), {
@@ -117,33 +114,23 @@ export default function MultiStepSignUpFree({
         emailVerified: false,
         premium: false,
       });
-      console.log('[SignUp] User document created in Firestore');
 
       // Send email verification with improved configuration
       try {
-        console.log('[SignUp] Attempting to send verification email...');
-        const verificationUrl = `${window.location.origin}/auth/verify-email`;
-        console.log('[SignUp] Verification URL:', verificationUrl);
-        
         await sendEmailVerification(user, {
-          url: verificationUrl,
+          url: `${window.location.origin}/auth/verify-email`,
           handleCodeInApp: true
         });
-        console.log('[SignUp] Verification email sent successfully');
         setVerificationSent(true);
       } catch (verificationError: any) {
-        console.error('[SignUp] Verification email error:', verificationError);
-        console.error('[SignUp] Error code:', verificationError.code);
-        console.error('[SignUp] Error message:', verificationError.message);
+        console.error('Verification email error:', verificationError);
         // Don't throw error here, just log it and continue
         // The user can still request a new verification email later
       }
 
       setStep('verify');
     } catch (error: any) {
-      console.error('[SignUp] Signup error:', error);
-      console.error('[SignUp] Error code:', error.code);
-      console.error('[SignUp] Error message:', error.message);
+      console.error('Signup error:', error);
       if (error.code === 'auth/email-already-in-use') {
         setError('This email is already registered. Please sign in instead.');
       } else if (error.code === 'auth/invalid-email') {
