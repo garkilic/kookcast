@@ -101,14 +101,14 @@ export default function DashboardV2() {
   const handleResendVerification = async () => {
     const { auth } = await import('@/lib/firebase');
     if (!auth.currentUser) return;
-    setIsResending(true);
-    setError('');
-    setSuccess('');
+    
     try {
+      setIsResending(true);
       await sendEmailVerification(auth.currentUser);
       setSuccess('Verification email sent! Please check your inbox.');
-    } catch (error: any) {
-      setError(error.message);
+    } catch (error) {
+      console.error('Error resending verification:', error);
+      setError('Failed to resend verification email. Please try again.');
     } finally {
       setIsResending(false);
     }

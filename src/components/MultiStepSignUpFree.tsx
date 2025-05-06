@@ -101,7 +101,7 @@ export default function MultiStepSignUpFree({ onUpgradeToPremium, initialSpot, i
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Send email verification immediately
+      // Send verification email
       await sendEmailVerification(user);
       setVerificationSent(true);
 
